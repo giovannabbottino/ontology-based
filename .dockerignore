@@ -1,0 +1,10 @@
+.pytest-temp
+.pytest_cache
+.pytest-runtime
+.ruff_cache
+.tmp
+tmp
+.venv
+data
+__pycache__
+*.pyc

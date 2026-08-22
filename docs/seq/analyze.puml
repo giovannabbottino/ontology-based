@@ -1,0 +1,82 @@
+@startuml
+actor User
+boundary ClientApp as Client
+
+box "Flask App" #EFEFEF
+  control "Analyze Controller" as Controller
+  control "OntologyKnowledgeGraphService" as Service
+  entity "PromptRepository" as Repo
+  control "OllamaChatClient" as LLM
+  control "WikidataMCPClient" as MCP
+end box
+
+collections "Prompt files\n(prompt/)" as PromptFiles
+database "Ollama CSV log\n(OLLAMA_CSV_PATH)" as CSV
+boundary "Ollama /api/chat" as Ollama
+boundary "Wikidata MCP\nstreamable HTTP" as Wikidata
+control "rdflib Graph.parse\n(Turtle validation)" as RDF
+
+User -> Client: Request analysis
+Client -> Controller ++: POST /analyze {text, prompt names?, max_rdf_attempts?}
+Controller -> Controller: validate JSON fields and trim text
+Controller -> Service ++: AnalyzeRequest
+
+Service -> Repo ++: load system prompt
+Repo -> PromptFiles: read system/knowledge_graph.txt
+Repo --> Service --: system prompt
+Service -> Repo ++: load ontology few-shot prompt
+Repo -> PromptFiles: read prompts/ontology-few-shot.txt
+Repo --> Service --: prompt template
+Service -> Service: replace ${USER_TEXT} with input
+
+Service -> MCP ++: ollama_tools()
+MCP -> Wikidata ++: initialize
+Wikidata --> MCP --: capabilities + session ID
+MCP -> Wikidata: notifications/initialized
+MCP -> Wikidata ++: tools/list
+Wikidata --> MCP --: tool definitions
+MCP -> MCP: keep WIKIDATA_MCP_TOOLS allowlist
+MCP --> Service --: Ollama function schemas
+
+loop up to MAX_TOOL_ROUNDS
+  Service -> LLM ++: chat(messages, tools)
+  LLM -> Ollama ++: POST /api/chat {model, messages, tools, stream:false}
+  Ollama --> LLM --: assistant message
+  LLM -> CSV: append messages, response and tool_calls
+  LLM --> Service --: chat response
+
+  alt assistant requests tools
+    loop each tool call
+      Service -> MCP ++: call_tool(name, arguments)
+      MCP -> MCP: validate allowlist and add default lang
+      MCP -> Wikidata ++: tools/call
+      Wikidata --> MCP --: search/hierarchy evidence
+      MCP --> Service --: UTF-8 result text
+      Service -> Service: append role=tool message and audit entry
+    end
+  else final answer without any MCP call and MCP is required
+    Service -> Service: append one tool-use reminder
+  else final RDF answer
+    Service -> Service: exit tool loop
+  end
+end
+
+Service -> Service: extract Turtle and generate repair candidates
+Service -> RDF ++: parse(candidate, format="turtle")
+
+alt candidate is valid and has semantic relation
+  RDF --> Service --: valid graph
+  Service --> Controller --: AnalyzeResponse(rdf, mcp_calls, attribution)
+  Controller --> Client --: HTTP 200 JSON
+  Client --> User: Show result
+else candidate is invalid and attempts remain
+  RDF --> Service --: parser error
+  Service -> Service: append repair request to same history
+  Service -> LLM: continue generation loop with existing MCP evidence
+else attempts exhausted
+  RDF --> Service --: parser error
+  Service --> Controller --: RDFValidationError
+  Controller --> Client --: HTTP 422
+end
+
+@enduml
