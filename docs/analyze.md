@@ -70,10 +70,10 @@ Prompt paths cannot escape the local `prompt/` directory.
 6. Repeat until Ollama returns a final textual answer or `MAX_TOOL_ROUNDS` is exhausted.
 7. When `REQUIRE_WIKIDATA_MCP=true`, remind a model that answers without a tool call once;
    reject the request if it again answers without using MCP.
-8. Extract Turtle from the final answer, try bounded local repairs, and validate it with
+8. Extract Turtle from the final answer and validate it strictly with
    `rdflib.Graph.parse(format="turtle")`.
 9. If the RDF remains invalid and attempts remain, append parser feedback to the same
-   conversation. A successful MCP call does not need to be repeated during RDF repair.
+   conversation. A successful MCP call does not need to be repeated during RDF regeneration.
 
 The service exposes only the tools in `WIKIDATA_MCP_TOOLS`. The default allowlist contains
 `search_items` and `get_instance_and_subclass_hierarchy`; arbitrary statements and SPARQL
@@ -114,10 +114,9 @@ The returned candidate must:
 - contain at least one triple;
 - contain at least one predicate other than `rdfs:label`.
 
-Local repair candidates normalize common quote errors, add a missing final period, add an
-undeclared `xsd:` prefix when needed, replace malformed Wikidata placeholders, remove an
-incomplete trailing block, and, on the final attempt, salvage independently parseable
-statements.
+No local syntax repair, statement salvage, alternative data source, or substitute graph is
+used. Invalid output is accepted only if a later attempt through the same LLM conversation
+returns valid Turtle.
 
 ### Error responses
 

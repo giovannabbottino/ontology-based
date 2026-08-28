@@ -6,8 +6,8 @@
 - Ollama with a tool-capable model;
 - network access to the configured Wikidata MCP endpoint.
 
-The default model is `llama3.1:8b`. The older `llama3:8b` baseline model should not be
-used here because the ontology-based flow depends on structured tool calls.
+The default model is `llama3.1:8b`, matching the other experimental pipelines and
+supporting the structured tool calls required by the ontology-based flow.
 
 ## Environment variables
 
@@ -18,7 +18,7 @@ used here because the ontology-based flow depends on structured tool calls.
 | `OLLAMA_API_URL` | `http://localhost:11434` |
 | `OLLAMA_MODEL` | `llama3.1:8b` |
 | `OLLAMA_CSV_PATH` | `data/ollama_responses.csv` |
-| `OLLAMA_TIMEOUT_SECONDS` | `300` |
+| `OLLAMA_TIMEOUT_SECONDS` | `660` |
 | `WIKIDATA_MCP_URL` | `https://wd-mcp.wmcloud.org/mcp/` |
 | `WIKIDATA_MCP_TOOLS` | `search_items,get_instance_and_subclass_hierarchy` |
 | `WIKIDATA_LANGUAGE` | `en` |

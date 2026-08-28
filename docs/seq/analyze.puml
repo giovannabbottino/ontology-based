@@ -61,7 +61,7 @@ loop up to MAX_TOOL_ROUNDS
   end
 end
 
-Service -> Service: extract Turtle and generate repair candidates
+Service -> Service: extract Turtle without local repair
 Service -> RDF ++: parse(candidate, format="turtle")
 
 alt candidate is valid and has semantic relation
@@ -71,7 +71,7 @@ alt candidate is valid and has semantic relation
   Client --> User: Show result
 else candidate is invalid and attempts remain
   RDF --> Service --: parser error
-  Service -> Service: append repair request to same history
+  Service -> Service: append regeneration request to same history
   Service -> LLM: continue generation loop with existing MCP evidence
 else attempts exhausted
   RDF --> Service --: parser error

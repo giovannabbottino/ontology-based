@@ -3,7 +3,7 @@
 Tests are split into:
 
 - `tests/unit/test_services.py`: MCP/Ollama orchestration, required MCP use, hierarchy
-  workflow, RDF validation, and repair retries;
+  workflow, strict RDF validation, and same-conversation retries;
 - `tests/unit/test_wikidata_mcp_client.py`: MCP initialization, allowlist filtering,
   default language injection, tool execution, and UTF-8 handling;
 - `tests/unit/test_prompts.py`: critical grounding and placeholder constraints;

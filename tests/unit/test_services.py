@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from ontology_based.application.services import OntologyKnowledgeGraphService
+from ontology_based.application.services import OntologyKnowledgeGraphService, RDFValidationError
 from ontology_based.domain.models import AnalyzeRequest
 
 
@@ -155,3 +155,29 @@ def test_invalid_rdf_is_retried_without_requiring_duplicate_mcp_calls():
     assert "wd:Q7251" in response.rdf
     assert len(response.mcp_calls) == 1
     assert "previous answer was not valid Turtle RDF" in llm.requests[-1][-1]["content"]
+
+
+def test_invalid_rdf_is_rejected_without_local_repair():
+    invalid_rdf = (
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        "@prefix wd: <http://www.wikidata.org/entity/> .\n"
+        'wd:Q7251 rdfs:label ""Alan Turing"" .'
+    )
+    llm = StubLLM(
+        [
+            tool_call("search_items", {"query": "Alan Turing"}),
+            {"role": "assistant", "content": invalid_rdf},
+        ]
+    )
+    service = OntologyKnowledgeGraphService(
+        StubPromptRepository(),
+        default_prompt="prompts/ontology-few-shot.txt",
+        default_system_prompt="system/knowledge_graph.txt",
+        llm=llm,
+        wikidata=StubWikidata(),
+    )
+
+    with pytest.raises(RDFValidationError):
+        service.analyze(
+            AnalyzeRequest(text="Alan Turing was a human.", max_rdf_attempts=1)
+        )

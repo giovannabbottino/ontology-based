@@ -79,8 +79,9 @@ The standard Ollama generation variables (`OLLAMA_SEED`, `OLLAMA_TEMPERATURE`,
 `OLLAMA_TOP_K`, `OLLAMA_TOP_P`, `OLLAMA_MIN_P`, `OLLAMA_STOP`, `OLLAMA_NUM_CTX`, and
 `OLLAMA_NUM_PREDICT`) are also supported.
 
-The model must support Ollama tool calling. `llama3.1:8b` is intentionally the default;
-the `llama3:8b` baseline model does not advertise that capability.
+The configured model must return structured tool calls for the ontology flow to complete.
+The default is `llama3.1:8b`, matching the other experimental pipelines and providing
+native Ollama tool-call support.
 
 ## Run and test
 
