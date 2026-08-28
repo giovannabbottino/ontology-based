@@ -16,6 +16,28 @@ The default MCP allowlist contains only `search_items` and
 `get_instance_and_subclass_hierarchy`. This keeps the experiment ontology-focused:
 it does not reproduce the hybrid pipeline's statement and direct-relationship retrieval.
 
+## Quick start
+
+Requirements: Python 3.10 through 3.13, Ollama with `llama3.1:8b`, and outbound
+HTTPS access to the configured Wikidata MCP endpoint.
+
+```bash
+ollama pull llama3.1:8b
+python -m pip install -e ".[dev]"
+python -m ontology_based
+```
+
+In another terminal:
+
+```bash
+curl -X POST http://127.0.0.1:5100/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Alan Turing worked at Bletchley Park.","max_rdf_attempts":3}'
+```
+
+With `REQUIRE_WIKIDATA_MCP=true`, a successful request must include at least one
+allowlisted Wikidata tool call.
+
 ## Flow
 
 1. Load the system and few-shot prompt and insert the input text.
@@ -99,10 +121,8 @@ Supported Python versions are 3.10 through 3.13. The Docker image uses Python 3.
 
 ## Documentation
 
-- [Article section in LaTeX](docs/artigo.tex)
 - [API contract](docs/analyze.md)
 - [Prompt design](docs/prompt.md)
 - [Run guide](docs/how-to-run.md)
 - [Test guide](docs/how-to-test.md)
-- [Process flow](docs/fluxograma-processo-criacao.md)
 - [Sequence diagram source](docs/seq/analyze.puml)
