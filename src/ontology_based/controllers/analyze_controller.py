@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+from typing import Any, Protocol
+
 import requests
 from flask import Blueprint, jsonify, request
 
-from ..application.services import OntologyKnowledgeGraphService, RDFValidationError
-from ..domain.models import AnalyzeRequest
+from ..application.services import RDFValidationError
+from ..domain.models import AnalyzeRequest, AnalyzeResponse
 
 
-def create_analyze_blueprint(service: OntologyKnowledgeGraphService) -> Blueprint:
+class AnalyzeService(Protocol):
+    def analyze(self, request: AnalyzeRequest) -> AnalyzeResponse: ...
+
+    def health(self) -> dict[str, Any]: ...
+
+
+def create_analyze_blueprint(service: AnalyzeService) -> Blueprint:
     blueprint = Blueprint("analyze", __name__)
 
     @blueprint.get("/health")
@@ -27,11 +35,14 @@ def create_analyze_blueprint(service: OntologyKnowledgeGraphService) -> Blueprin
 
         prompt_name = payload.get("prompt_name")
         system_prompt_name = payload.get("system_prompt_name")
+        idempotence_key = payload.get("idempotence_key")
         max_attempts = payload.get("max_rdf_attempts", 3)
         if prompt_name is not None and not isinstance(prompt_name, str):
             return jsonify({"error": "Field 'prompt_name' must be a string."}), 400
         if system_prompt_name is not None and not isinstance(system_prompt_name, str):
             return jsonify({"error": "Field 'system_prompt_name' must be a string."}), 400
+        if idempotence_key is not None and not isinstance(idempotence_key, str):
+            return jsonify({"error": "Field 'idempotence_key' must be a string."}), 400
         if not isinstance(max_attempts, int) or isinstance(max_attempts, bool):
             return jsonify({"error": "Field 'max_rdf_attempts' must be an integer."}), 400
 
@@ -39,6 +50,7 @@ def create_analyze_blueprint(service: OntologyKnowledgeGraphService) -> Blueprin
             response = service.analyze(
                 AnalyzeRequest(
                     text=text.strip(),
+                    idempotence_key=idempotence_key,
                     prompt_name=prompt_name,
                     system_prompt_name=system_prompt_name,
                     max_rdf_attempts=max_attempts,

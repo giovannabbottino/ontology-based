@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask
@@ -11,6 +12,7 @@ from .infrastructure import (
     OllamaChatClient,
     OllamaClientConfig,
     PromptRepository,
+    RequestLogger,
     WikidataMCPClient,
     WikidataMCPConfig,
 )
@@ -23,6 +25,9 @@ def create_app() -> Flask:
     load_dotenv()
     app = Flask(__name__)
 
+    analyze_log_path = os.getenv("ANALYZE_LOG_PATH", "data/analyze_log.jsonl")
+    request_logger = RequestLogger(Path(analyze_log_path)) if analyze_log_path else None
+
     service = OntologyKnowledgeGraphService(
         prompt_repository=PromptRepository(),
         default_prompt=os.getenv("DEFAULT_PROMPT_NAME", DEFAULT_PROMPT_NAME),
@@ -30,7 +35,11 @@ def create_app() -> Flask:
         llm=OllamaChatClient(OllamaClientConfig.from_env()),
         wikidata=WikidataMCPClient(WikidataMCPConfig.from_env()),
         max_tool_rounds=_int_env("MAX_TOOL_ROUNDS", 8),
+        max_tool_calls=_int_env("MAX_TOOL_CALLS", 4),
+        max_tool_result_chars=_int_env("MAX_TOOL_RESULT_CHARS", 1500),
+        tool_num_predict=_int_env("OLLAMA_TOOL_NUM_PREDICT", 256),
         require_mcp=_bool_env("REQUIRE_WIKIDATA_MCP", True),
+        request_logger=request_logger,
     )
     app.register_blueprint(create_analyze_blueprint(service))
     return app

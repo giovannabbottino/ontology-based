@@ -18,7 +18,7 @@ it does not reproduce the hybrid pipeline's statement and direct-relationship re
 
 ## Quick start
 
-Requirements: Python 3.10 through 3.13, Ollama with `llama3.1:8b`, and outbound
+Requirements: Python 3.12, Ollama with `llama3.1:8b`, and outbound
 HTTPS access to the configured Wikidata MCP endpoint.
 
 ```bash
@@ -92,10 +92,14 @@ The response includes the RDF and an audit trail of MCP calls:
 | `WIKIDATA_USER_AGENT` | `ontology-based-agent/1.0` |
 | `REQUIRE_WIKIDATA_MCP` | `true` |
 | `MAX_TOOL_ROUNDS` | `8` |
+| `MAX_TOOL_CALLS` | `4` |
+| `MAX_TOOL_RESULT_CHARS` | `1500` |
 | `OLLAMA_API_URL` | `http://localhost:11434` |
 | `OLLAMA_MODEL` | `llama3.1:8b` |
 | `OLLAMA_TIMEOUT_SECONDS` | `300` |
+| `OLLAMA_TOOL_NUM_PREDICT` | `256` |
 | `OLLAMA_CSV_PATH` | `data/ollama_responses.csv` |
+| `ANALYZE_LOG_PATH` | `data/analyze_log.jsonl` |
 
 The standard Ollama generation variables (`OLLAMA_SEED`, `OLLAMA_TEMPERATURE`,
 `OLLAMA_TOP_K`, `OLLAMA_TOP_P`, `OLLAMA_MIN_P`, `OLLAMA_STOP`, `OLLAMA_NUM_CTX`, and
@@ -104,6 +108,11 @@ The standard Ollama generation variables (`OLLAMA_SEED`, `OLLAMA_TEMPERATURE`,
 The configured model must return structured tool calls for the ontology flow to complete.
 The default is `llama3.1:8b`, matching the other experimental pipelines and providing
 native Ollama tool-call support.
+
+The tool-call and result-size limits keep few-shot examples or large hierarchy responses
+from consuming the model context and causing long-running requests.
+`OLLAMA_TOOL_NUM_PREDICT` applies only while tools are available; final Turtle generation
+continues to use `OLLAMA_NUM_PREDICT`.
 
 ## Run and test
 
@@ -117,7 +126,7 @@ python -m pyright
 
 The local service listens on `http://127.0.0.1:5100`.
 
-Supported Python versions are 3.10 through 3.13. The Docker image uses Python 3.12.
+The supported Python version and Docker image are both Python 3.12.
 
 ## Documentation
 

@@ -38,7 +38,7 @@ class FakeLLM:
             },
         ]
 
-    def chat(self, messages, tools=None):
+    def chat(self, messages, tools=None, num_predict=None):
         return self.responses.pop(0)
 
     def health_check(self) -> dict[str, Any]:

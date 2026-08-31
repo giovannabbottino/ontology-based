@@ -12,7 +12,7 @@ Tests are split into:
 
 ## Install development dependencies
 
-Run from `ontology-based/` with Python 3.10–3.13:
+Run from `ontology-based/` with Python 3.12:
 
 ```bash
 python -m pip install -r requirements-dev.txt

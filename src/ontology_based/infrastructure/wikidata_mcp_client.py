@@ -112,7 +112,7 @@ class WikidataMCPClient:
             raise ValueError(f"MCP tool {name!r} is not allowed for ontology-based analysis.")
         schema = available[name].get("inputSchema") or {}
         properties = schema.get("properties") or {}
-        arguments = dict(arguments)
+        arguments = _normalize_arguments(arguments, schema)
         if "lang" in properties and "lang" not in arguments:
             arguments["lang"] = self.config.language
         data, _ = self._post_jsonrpc(
@@ -203,3 +203,39 @@ def _tool_result_text(result: dict[str, Any]) -> str:
     if "structuredContent" in result:
         return json.dumps(result["structuredContent"], ensure_ascii=False)
     return json.dumps(result, ensure_ascii=False)
+
+
+def _normalize_arguments(
+    arguments: dict[str, Any], schema: dict[str, Any]
+) -> dict[str, Any]:
+    """Normalize model-generated arguments according to the MCP input schema."""
+    properties = schema.get("properties") or {}
+    normalized = dict(arguments)
+
+    if "entity_id" in properties and "entity_id" not in normalized:
+        for alias in ("ids", "qids", "entity_ids", "qid", "id"):
+            if alias not in normalized:
+                continue
+            candidate = normalized.pop(alias)
+            if isinstance(candidate, str):
+                with suppress(json.JSONDecodeError):
+                    decoded = json.loads(candidate)
+                    candidate = decoded
+            if isinstance(candidate, list) and candidate:
+                candidate = candidate[0]
+            if isinstance(candidate, str) and candidate.strip():
+                normalized["entity_id"] = candidate.strip()
+            break
+
+    for name, value in normalized.items():
+        property_schema = properties.get(name)
+        if not isinstance(property_schema, dict):
+            continue
+        if name == "entity_id" and isinstance(value, str):
+            normalized[name] = value.removeprefix("wd:").strip()
+        if property_schema.get("type") == "integer" and isinstance(value, str):
+            # Invalid values stay untouched so the MCP server can return its
+            # normal schema-validation error instead of changing semantics.
+            with suppress(ValueError):
+                normalized[name] = int(value.strip())
+    return normalized

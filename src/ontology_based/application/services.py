@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from typing import Any, Protocol
+from uuid import uuid4
 
 from rdflib import Graph
 from rdflib.namespace import RDFS
 
 from ..domain.models import AnalyzeRequest, AnalyzeResponse
+from ..infrastructure.request_logger import RequestLogger
 
 
 class PromptLoader(Protocol):
@@ -15,7 +17,10 @@ class PromptLoader(Protocol):
 
 class ChatClient(Protocol):
     def chat(
-        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        num_predict: int | None = None,
     ) -> dict[str, Any]: ...
 
     def health_check(self) -> dict[str, Any]: ...
@@ -45,7 +50,11 @@ class OntologyKnowledgeGraphService:
         llm: ChatClient,
         wikidata: OntologyClient,
         max_tool_rounds: int = 8,
+        max_tool_calls: int = 4,
+        max_tool_result_chars: int = 1500,
+        tool_num_predict: int = 256,
         require_mcp: bool = True,
+        request_logger: RequestLogger | None = None,
     ) -> None:
         self.prompt_repository = prompt_repository
         self.default_prompt = default_prompt
@@ -53,9 +62,15 @@ class OntologyKnowledgeGraphService:
         self.llm = llm
         self.wikidata = wikidata
         self.max_tool_rounds = max(1, int(max_tool_rounds))
+        self.max_tool_calls = max(1, int(max_tool_calls))
+        self.max_tool_result_chars = max(1, int(max_tool_result_chars))
+        self.tool_num_predict = max(1, int(tool_num_predict))
         self.require_mcp = require_mcp
+        self.request_logger = request_logger
 
     def analyze(self, request: AnalyzeRequest) -> AnalyzeResponse:
+        key = request.idempotence_key or str(uuid4())
+        self._log(key, "analyze_started", {"text": request.text})
         prompt_name = request.prompt_name or self.default_prompt
         system_prompt_name = request.system_prompt_name or self.default_system_prompt
 
@@ -71,15 +86,27 @@ class OntologyKnowledgeGraphService:
             system_prompt=system_prompt_text,
             prompt=message,
             max_attempts=request.max_rdf_attempts,
+            key=key,
         )
 
-        return AnalyzeResponse(
+        response = AnalyzeResponse(
             text=request.text,
             rdf=rdf,
             prompt_name=prompt_name,
             system_prompt_name=system_prompt_name,
             mcp_calls=mcp_calls,
         )
+        self._log(
+            key,
+            "analyze_completed",
+            {
+                "prompt_name": prompt_name,
+                "system_prompt_name": system_prompt_name,
+                "rdf": rdf,
+                "mcp_call_count": len(mcp_calls),
+            },
+        )
+        return response
 
     def health(self) -> dict[str, dict[str, Any]]:
         return {"ollama": self.llm.health_check(), "wikidata_mcp": self.wikidata.health()}
@@ -89,6 +116,7 @@ class OntologyKnowledgeGraphService:
         system_prompt: str,
         prompt: str,
         max_attempts: int,
+        key: str,
     ) -> tuple[str, list[dict[str, Any]]]:
         attempts = max(1, min(int(max_attempts or 3), 3))
         last_error: str | None = None
@@ -104,21 +132,38 @@ class OntologyKnowledgeGraphService:
                 messages,
                 tools,
                 require_tool_call=self.require_mcp and not mcp_calls,
+                tool_call_budget=(
+                    max(0, self.max_tool_calls - len(mcp_calls)) if attempt == 1 else 0
+                ),
+                key=key,
             )
             mcp_calls.extend(calls)
 
             try:
                 self._parse_rdf(rdf_text)
+                self._log(
+                    key,
+                    "rdf_validated",
+                    {"attempt": attempt, "validation_method": "strict"},
+                )
                 return rdf_text, mcp_calls
             except Exception as exc:  # rdflib raises parser-specific exception classes.
                 last_error = str(exc)
+                self._log(
+                    key,
+                    "rdf_validation_failed",
+                    {"attempt": attempt, "error": last_error},
+                )
 
             if attempt == attempts:
                 break
             messages.append(
                 {
                     "role": "user",
-                    "content": self._build_retry_prompt(prompt, rdf_text, last_error or "Invalid Turtle RDF."),
+                    "content": self._build_retry_prompt(
+                        rdf_text,
+                        last_error or "Invalid Turtle RDF."
+                    ),
                 }
             )
 
@@ -134,21 +179,61 @@ class OntologyKnowledgeGraphService:
         tools: list[dict[str, Any]],
         *,
         require_tool_call: bool,
+        tool_call_budget: int,
+        key: str,
     ) -> tuple[str, list[dict[str, Any]]]:
         executed: list[dict[str, Any]] = []
         reminded = False
-        for _ in range(self.max_tool_rounds):
-            generation = self.llm.chat(messages=messages, tools=tools)
+        for round_number in range(1, self.max_tool_rounds + 1):
+            available_tools = tools if len(executed) < tool_call_budget else None
+            self._log(
+                key,
+                "llm_chat_request",
+                {
+                    "round": round_number,
+                    "messages": messages,
+                    "tools_enabled": bool(available_tools),
+                },
+            )
+            generation = self.llm.chat(
+                messages=messages,
+                tools=available_tools,
+                num_predict=self.tool_num_predict if available_tools else None,
+            )
+            self._log(
+                key,
+                "llm_chat_response",
+                {"round": round_number, "response": generation},
+            )
             assistant = generation.get("message")
             if not isinstance(assistant, dict):
                 raise RuntimeError("Ollama response does not contain an assistant message.")
-            messages.append(_assistant_message(assistant))
 
-            tool_calls = assistant.get("tool_calls") or []
+            requested_tool_calls = assistant.get("tool_calls") or []
+            remaining_tool_calls = tool_call_budget - len(executed)
+            tool_calls = requested_tool_calls[:remaining_tool_calls]
+
+            assistant_message = _assistant_message(assistant)
+            if requested_tool_calls:
+                if tool_calls:
+                    assistant_message["tool_calls"] = tool_calls
+                else:
+                    assistant_message.pop("tool_calls", None)
+            messages.append(assistant_message)
+
             if tool_calls:
                 for tool_call in tool_calls:
                     name, arguments = _tool_call_parts(tool_call)
                     result = self.wikidata.call_tool(name, arguments)
+                    self._log(
+                        key,
+                        "wikidata_tool_result",
+                        {
+                            "name": name,
+                            "arguments": arguments,
+                            "result": _truncate(result, 6000),
+                        },
+                    )
                     executed.append(
                         {
                             "name": name,
@@ -156,7 +241,35 @@ class OntologyKnowledgeGraphService:
                             "result": _truncate(result, 6000),
                         }
                     )
-                    messages.append({"role": "tool", "tool_name": name, "content": result})
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_name": name,
+                            "content": _truncate(result, self.max_tool_result_chars),
+                        }
+                    )
+                if len(requested_tool_calls) > len(tool_calls):
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "The tool-call budget is exhausted. Do not request more tools. "
+                                "Use the returned evidence and produce only the requested Turtle."
+                            ),
+                        }
+                    )
+                continue
+
+            if requested_tool_calls:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "The tool-call budget is exhausted. Do not request more tools. "
+                            "Use the returned evidence and produce only the requested Turtle."
+                        ),
+                    }
+                )
                 continue
 
             if require_tool_call and not executed:
@@ -210,19 +323,25 @@ class OntologyKnowledgeGraphService:
         return text
 
     @staticmethod
-    def _build_retry_prompt(original_prompt: str, invalid_rdf: str, parser_error: str) -> str:
+    def _build_retry_prompt(invalid_rdf: str, parser_error: str) -> str:
         error = parser_error[:1200]
-        previous = invalid_rdf[:6000]
+        previous = invalid_rdf[:3000]
         return (
-            f"{original_prompt}\n\n"
-            "The previous answer was not valid Turtle RDF when parsed with rdflib Graph.parse.\n"
+            "The previous answer was not valid Turtle RDF when parsed with "
+            "rdflib Graph.parse.\n"
             f"Parser error:\n{error}\n\n"
-            "Return only corrected valid Turtle RDF. Do not include markdown fences, "
-            "comments, or explanations. Every predicate must have an object; separate "
-            "multiple objects with commas; use kg: resources instead of wd:Q?; never "
-            "emit a standalone period.\n"
+            "Regenerate the complete document so every statement conforms to the standard "
+            "RDF/Turtle grammar and the full response parses without errors with "
+            "rdflib.Graph.parse(format=\"turtle\"). Treat the parser error only as a "
+            "diagnostic: review and correct the entire RDF document, not only the reported "
+            "line. Return only the corrected Turtle RDF without markdown, comments, or "
+            "explanations. Do not call more tools.\n"
             f"Previous invalid RDF:\n{previous}"
         )
+
+    def _log(self, key: str, event: str, payload: dict[str, Any]) -> None:
+        if self.request_logger:
+            self.request_logger.log(idempotence_key=key, event=event, payload=payload)
 
 
 def _assistant_message(message: dict[str, Any]) -> dict[str, Any]:

@@ -84,6 +84,7 @@ class OllamaChatClient:
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        num_predict: int | None = None,
     ) -> dict[str, Any]:
         base_url = self.config.url.rstrip("/")
         target_url = base_url if base_url.endswith("/api/chat") else f"{base_url}/api/chat"
@@ -94,8 +95,11 @@ class OllamaChatClient:
         }
         if tools:
             payload["tools"] = tools
-        if self.config.options.values:
-            payload["options"] = self.config.options.values
+        options = dict(self.config.options.values)
+        if num_predict is not None:
+            options["num_predict"] = max(1, int(num_predict))
+        if options:
+            payload["options"] = options
 
         response = requests.post(target_url, json=payload, timeout=self.config.timeout_seconds)
         if response.status_code == 404:

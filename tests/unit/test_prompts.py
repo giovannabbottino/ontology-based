@@ -10,4 +10,10 @@ def test_prompts_require_wikidata_mcp_and_restrict_qids():
     assert "only authority for QIDs" in system
     assert "Only QIDs returned by MCP" in prompt
     assert "This ablation does not retrieve arbitrary Wikidata statements" in prompt
+    assert "Never call tools for entities shown inside `<EXAMPLES>`" in prompt
+    assert "standard RDF/Turtle grammar" in system
+    assert "standard RDF/Turtle grammar" in prompt
+    assert "valid Turtle syntax takes precedence" in system
+    assert "valid Turtle syntax takes precedence" in prompt
+    assert "<CURRENT_TEXT>" in prompt
     assert "${USER_TEXT}" in prompt

@@ -42,6 +42,7 @@ tool calls, returns their results to the model, and validates the final Turtle.
 ```json
 {
   "text": "Alan Turing worked at Bletchley Park during World War II.",
+  "idempotence_key": "request-123",
   "prompt_name": "prompts/ontology-few-shot.txt",
   "system_prompt_name": "system/knowledge_graph.txt",
   "max_rdf_attempts": 3
@@ -51,6 +52,7 @@ tool calls, returns their results to the model, and validates the final Turtle.
 | Field | Required | Description |
 |---|---:|---|
 | `text` | yes | Non-empty source text. Leading and trailing whitespace is removed. |
+| `idempotence_key` | no | String used to correlate all JSONL events for this request. A UUID is generated when omitted. |
 | `prompt_name` | no | Prompt path below `prompt/`; defaults to `DEFAULT_PROMPT_NAME`. |
 | `system_prompt_name` | no | System-prompt path below `prompt/`; defaults to `DEFAULT_SYSTEM_PROMPT_NAME`. |
 | `max_rdf_attempts` | no | Integer number of RDF generation attempts, clamped to 1–3. Default: 3. |
@@ -67,7 +69,9 @@ Prompt paths cannot escape the local `prompt/` directory.
 4. Send the conversation and tools to Ollama `/api/chat` with `stream:false`.
 5. Execute every returned tool call through MCP `tools/call` and append its result as a
    `tool` message.
-6. Repeat until Ollama returns a final textual answer or `MAX_TOOL_ROUNDS` is exhausted.
+6. Execute at most `MAX_TOOL_CALLS` calls, truncating each result passed back to the
+   model to `MAX_TOOL_RESULT_CHARS` characters.
+7. Repeat until Ollama returns a final textual answer or `MAX_TOOL_ROUNDS` is exhausted.
 7. When `REQUIRE_WIKIDATA_MCP=true`, remind a model that answers without a tool call once;
    reject the request if it again answers without using MCP.
 8. Extract Turtle from the final answer and validate it strictly with
@@ -132,5 +136,6 @@ returns valid Turtle.
 
 Every Ollama chat response is appended to `OLLAMA_CSV_PATH`. The CSV contains the model,
 complete message history for that call, textual response, structured tool calls, and
-creation timestamp. MCP calls are exposed in the successful API response; they are not
-written to a separate file.
+creation timestamp. Request lifecycle, LLM/MCP activity, and RDF validation are also
+written as JSON Lines to `ANALYZE_LOG_PATH`, correlated by `idempotence_key`. Logging is
+best-effort and does not fail an analysis if the log file cannot be written.

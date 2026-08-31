@@ -1,0 +1,243 @@
+% Fragmento para inclusão no artigo/tese.
+% Requer no preâmbulo: graphicx, booktabs e url (ou hyperref), além do comando \source.
+
+\subsection{Experimentos com a abordagem \textit{Ontology-Based}}
+
+Os experimentos com a abordagem \textit{ontology-based} foram realizados por
+meio de uma API desenvolvida com o \textit{framework} Flask. O serviço recebe um
+texto, combina-o com um \textit{prompt few-shot} e permite que o modelo de
+linguagem consulte informações ontológicas da Wikidata antes de produzir o
+grafo de conhecimento em RDF/Turtle. O acesso à Wikidata é realizado por meio
+de um servidor compatível com o \textit{Model Context Protocol} (MCP)%
+\footnote{Endpoint utilizado: \url{https://wd-mcp.wmcloud.org/mcp/}.}.
+
+Essa configuração corresponde à ablação intermediária entre os experimentos
+baseados exclusivamente em \textit{prompting} e a abordagem de
+\textit{hybrid pipelines}. No primeiro caso, o modelo recebe apenas as
+instruções e os exemplos contidos nos \textit{prompts}. Na abordagem
+\textit{ontology-based}, o modelo também pode buscar identificadores e
+hierarquias de classificação na Wikidata. No fluxo híbrido, por sua vez, a
+aplicação executa explicitamente etapas de extração de menções, resolução de
+entidades, recuperação de declarações e identificação de relações diretas. A
+Tabela~\ref{tab:comparacao-ablacoes-kg} resume essa delimitação.
+
+\begin{table}[htbp]
+\centering
+\caption{Delimitação das abordagens avaliadas na construção dos grafos.}
+\label{tab:comparacao-ablacoes-kg}
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{p{3.4cm}p{3.2cm}p{3.4cm}p{4.1cm}}
+\toprule
+\textbf{Abordagem} &
+\textbf{Uso de \textit{prompt}} &
+\textbf{Acesso à Wikidata} &
+\textbf{Orquestração local} \\
+\midrule
+\textit{Prompt-based} &
+Sistema e exemplos \textit{few-shot} &
+Não utiliza recuperação externa &
+Composição do \textit{prompt} e validação estrita do RDF \\
+\textit{Ontology-based} &
+Sistema e exemplos \textit{few-shot} &
+Busca de itens e hierarquia de instância/subclasse por MCP &
+Execução das chamadas de ferramenta e validação estrita do RDF \\
+\textit{Hybrid pipelines} &
+Sistema, extração e construção do RDF &
+Entidades, declarações e relações estruturadas &
+Extração, resolução, enriquecimento, construção e validação \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \caption{Fluxo de criação de grafos de conhecimento com a abordagem
+    \textit{ontology-based}.}
+    \includegraphics[width=0.52\linewidth]{metodo/figuras/experimento-b.jpg}
+    \label{fig:experimento-b}
+    \source{da autora.}
+\end{figure}
+
+Conforme apresentado na Figura~\ref{fig:experimento-b}, o fluxo inicia-se com
+uma requisição HTTP do tipo \texttt{POST} enviada à rota
+\texttt{/analyze}. O corpo deve conter o campo textual \texttt{text} e pode
+informar os arquivos de \textit{prompt} e o número máximo de tentativas de
+geração do RDF. O controlador verifica se o corpo é um objeto JSON, se o texto
+é uma cadeia não vazia e se os parâmetros opcionais possuem os tipos esperados.
+O texto é normalizado pela remoção de espaços em suas extremidades.
+
+Em seguida, o serviço carrega o \textit{prompt} de sistema e o
+\textit{prompt few-shot}. O texto é inserido no marcador
+\texttt{\$\{USER\_TEXT\}}; também é aceito o marcador legado
+\texttt{\$\{Text\_TEXT\}}. Quando nenhum dos dois está presente, a aplicação
+acrescenta o conteúdo no formato de uma interação entre usuário e assistente.
+
+Antes da geração, o cliente MCP inicializa uma sessão por HTTP, envia a
+notificação de inicialização e consulta o método \texttt{tools/list}. As
+ferramentas descobertas são filtradas por uma lista de permissão configurável.
+No perfil experimental padrão, apenas duas operações são expostas ao modelo:
+\texttt{search\_items}, destinada à busca de itens e identificadores, e
+\texttt{get\_instance\_and\_subclass\_hierarchy}, destinada à recuperação da
+hierarquia formada pelas propriedades \textit{instance of} e
+\textit{subclass of}. Ferramentas capazes de recuperar declarações arbitrárias
+ou executar consultas SPARQL não são disponibilizadas nessa ablação.
+
+Os esquemas JSON das ferramentas permitidas são convertidos para o formato de
+funções aceito pela rota \texttt{/api/chat} do Ollama. A requisição contém o
+modelo configurado, o histórico de mensagens, as ferramentas e as opções de
+geração, com \texttt{stream} definido como \texttt{false}. O modelo utilizado
+deve retornar chamadas estruturadas de ferramenta. Para manter a comparabilidade
+com os demais pipelines e oferecer suporte nativo a esse mecanismo, o perfil
+padrão emprega \texttt{llama3.1:8b}.
+
+Quando o modelo solicita uma ferramenta, a aplicação interpreta o nome e os
+argumentos da função, verifica se a operação pertence à lista de permissão e
+executa uma chamada MCP do tipo \texttt{tools/call}. O idioma configurado é
+incluído automaticamente quando o esquema da ferramenta oferece o argumento
+\texttt{lang}. O conteúdo retornado pela Wikidata é acrescentado ao histórico
+como uma mensagem com papel \texttt{tool}, após a qual o histórico completo é
+novamente enviado ao modelo. Várias chamadas devolvidas na mesma resposta são
+executadas sequencialmente.
+
+O ciclo entre o modelo e as ferramentas continua até que seja produzida uma
+resposta textual sem novas chamadas ou até que seja atingido o limite definido
+por \texttt{MAX\_TOOL\_ROUNDS}. Com
+\texttt{REQUIRE\_WIKIDATA\_MCP=true}, uma resposta final produzida antes de
+qualquer consulta é rejeitada provisoriamente e o modelo recebe uma instrução
+adicional para utilizar a Wikidata. Caso uma segunda resposta seja produzida
+sem chamadas de ferramenta, o processamento é encerrado com erro. Essa regra
+evita que uma execução configurada como \textit{ontology-based} seja
+silenciosamente reduzida ao experimento baseado somente em \textit{prompt}.
+
+O requisito implementado verifica a ocorrência de ao menos uma chamada MCP. A
+seleção específica entre busca e consulta da hierarquia permanece orientada
+pelos \textit{prompts}. Portanto, o modelo é instruído a pesquisar as entidades
+reconhecíveis e consultar a hierarquia dos identificadores selecionados quando
+a classificação for relevante, mas o serviço não impõe uma sequência fixa de
+ferramentas para todos os textos.
+
+\subsubsection{Definição dos \textit{prompts}}
+
+Foram utilizados dois arquivos com funções complementares: o \textit{prompt}
+de sistema \texttt{prompt/system/knowledge\_graph.txt} e o \textit{prompt}
+\textit{few-shot}
+\texttt{prompt/prompts/ontology-few-shot.txt}. Essa organização preserva a
+estrutura do experimento \textit{prompt-based}, permitindo que o efeito da
+ancoragem ontológica seja analisado sem introduzir um \textit{prompt} separado
+para extração de menções.
+
+O \textit{prompt} de sistema define o modelo como um assistente de dados
+estruturados fundamentado em ontologias. Ele determina que entidades do mundo
+real sejam pesquisadas com \texttt{search\_items} e que identificadores
+selecionados tenham sua hierarquia inspecionada quando necessário. Os
+identificadores retornados pelo MCP durante a requisição corrente constituem a
+única fonte autorizada de \textit{Q-IDs}; identificadores recordados pelo modelo
+ou apenas exibidos nos exemplos não devem ser reutilizados sem confirmação.
+
+O \textit{prompt few-shot} mantém as instruções de serialização, os prefixos e
+os três exemplos de transformação utilizados no experimento baseado em
+\textit{prompting}. Entretanto, explicita que os \textit{Q-IDs} presentes nos
+exemplos demonstram somente o formato esperado. Também separa dois tipos de
+evidência: a hierarquia obtida na Wikidata pode fundamentar relações de
+classificação, enquanto as demais relações representadas no grafo devem ser
+apoiadas pelo texto de entrada. Assim, uma declaração disponível na Wikidata,
+mas ausente do texto, não deve ser adicionada como fato narrado pelo documento.
+
+Os \textit{prompts} exigem que a resposta final contenha exclusivamente
+RDF/Turtle. Os recursos utilizados como sujeito ou objeto devem possuir
+\texttt{rdfs:label} com marcação de idioma. Recursos confirmados pelo MCP são
+representados com o prefixo \texttt{wd:}; conceitos não resolvidos recebem
+identificadores locais no \textit{namespace} \texttt{kg:}. Para classificações,
+o predicado preferencial é \texttt{kg:is}. Também são priorizadas relações
+entre recursos rotulados, pois elas permitem que consultas SPARQL percorram o
+grafo até as entidades correspondentes às respostas esperadas.
+
+\subsubsection{Validação e nova tentativa do RDF/Turtle}
+
+Quando o modelo retorna uma resposta textual, o serviço identifica o trecho
+correspondente ao RDF e remove apenas delimitadores de blocos de código ou
+conteúdo anterior à primeira marca reconhecível de Turtle. O candidato
+resultante é analisado por meio de
+\texttt{rdflib.Graph.parse(format="turtle")}. Para ser aceito, o resultado deve
+ser sintaticamente válido, conter pelo menos uma tripla e possuir ao menos um
+predicado diferente de \texttt{rdfs:label}. A aplicação não corrige sintaxe,
+remove declarações ou preserva subconjuntos do RDF localmente.
+
+Se o candidato não for válido e ainda houver tentativas disponíveis, o erro
+do analisador e a saída anterior são acrescentados ao mesmo histórico de
+conversa. O mesmo modelo recebe então uma solicitação de nova geração. As evidências MCP
+já presentes no histórico são reutilizadas, de modo que uma consulta bem-sucedida
+à Wikidata não precisa ser repetida apenas porque o RDF inicial estava
+malformado. O parâmetro \texttt{max\_rdf\_attempts} é limitado ao intervalo de
+uma a três tentativas. O esgotamento das tentativas resulta em HTTP
+\texttt{422}.
+
+Além do texto e do RDF validado, a resposta bem-sucedida contém os nomes dos
+\textit{prompts}, a atribuição \texttt{Source: Wikidata MCP} e a lista
+\texttt{mcp\_calls}. Essa lista registra, em ordem, o nome, os argumentos e uma
+versão limitada do resultado de cada ferramenta. O resultado conservado na
+resposta possui no máximo 6.000 caracteres, embora o conteúdo completo seja
+fornecido ao modelo durante a execução. As chamadas ao Ollama também são
+registradas em CSV com o histórico de mensagens, a resposta textual e as
+chamadas estruturadas de ferramenta.
+
+\subsubsection{Configuração do experimento}
+
+A Tabela~\ref{tab:config-ontology-based} apresenta os principais parâmetros do
+perfil padrão da abordagem \textit{ontology-based}.
+
+\begin{table}[htbp]
+\centering
+\caption{Configurações do experimento com a abordagem \textit{ontology-based}.}
+\label{tab:config-ontology-based}
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{p{4.2cm}p{2.2cm}p{6.2cm}p{2.4cm}}
+\toprule
+\textbf{Parâmetro} & \textbf{Tipo} & \textbf{Descrição} & \textbf{Valor padrão} \\
+\midrule
+\texttt{OLLAMA\_MODEL} & texto & Modelo usado nas chamadas ao Ollama & \texttt{llama3.1:8b} \\
+\texttt{stream} & booleano & Desabilita resposta incremental & \texttt{false} \\
+\texttt{OLLAMA\_TEMPERATURE} & real & Controla a aleatoriedade & \texttt{0} no Compose \\
+\texttt{OLLAMA\_NUM\_PREDICT} & inteiro & Limite de \textit{tokens} gerados & \texttt{1536} no Compose \\
+\texttt{WIKIDATA\_MCP\_TOOLS} & lista & Ferramentas expostas ao modelo & busca e hierarquia \\
+\texttt{WIKIDATA\_TIMEOUT\_SECONDS} & real & Tempo máximo por requisição MCP & \texttt{60} \\
+\texttt{REQUIRE\_WIKIDATA\_MCP} & booleano & Exige ao menos uma chamada MCP & \texttt{true} \\
+\texttt{MAX\_TOOL\_ROUNDS} & inteiro & Limite de ciclos modelo--ferramenta & \texttt{8} \\
+\texttt{max\_rdf\_attempts} & inteiro & Tentativas de geração/correção do RDF & \texttt{3} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Os parâmetros de amostragem do Ollama são opcionais e somente são incluídos na
+requisição quando possuem valor. A configuração do Docker Compose utiliza
+temperatura zero e limite de 1.536 \textit{tokens}, enquanto uma execução local
+sem essas variáveis utiliza os valores internos do modelo para os parâmetros
+não especificados.
+
+\subsubsection{Considerações sobre a reprodutibilidade}
+
+A abordagem depende de três fontes de variabilidade. A primeira corresponde à
+geração do modelo e às decisões sobre quais ferramentas chamar, quais
+candidatos selecionar e quando encerrar o ciclo. A segunda decorre da Wikidata,
+cujo conteúdo, ordenação de resultados e hierarquias podem mudar após a coleta.
+A terceira corresponde à validação e às novas tentativas do mesmo modelo, que
+podem produzir saídas diferentes sem alterar a fonte de evidência ou aplicar
+transformações locais ao RDF inválido.
+
+Para favorecer a rastreabilidade, recomenda-se registrar a versão do modelo,
+as opções de geração, a data da execução, o endereço do servidor MCP e a
+resposta completa do experimento. O campo \texttt{mcp\_calls} permite verificar
+quais ferramentas foram executadas, mas seus resultados são truncados na
+resposta pública; quando a reprodução integral do conteúdo externo for
+necessária, deve-se conservar também o tráfego ou uma cópia completa das
+evidências utilizadas.
+
+Em síntese, o experimento \textit{ontology-based} mantém a geração orientada por
+\textit{few-shot prompting}, mas restringe o uso de identificadores e classes a
+evidências obtidas por meio do MCP da Wikidata. A aplicação coordena as chamadas
+de ferramenta e valida o RDF, sem executar o processo explícito de extração e
+enriquecimento relacional característico do \textit{hybrid pipeline}. Dessa
+forma, a abordagem permite avaliar o efeito da ancoragem ontológica mantendo
+uma separação operacional clara entre os três níveis de ablação.
