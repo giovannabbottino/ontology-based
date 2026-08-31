@@ -17,7 +17,9 @@ The shared system prompt assigns the role `RDF knowledge graph engineer` and req
 - `,` only between multiple objects of the same predicate;
 - `.` at the end of every statement;
 - an object for every predicate;
-- only declared prefixes;
+- every used prefix declared in the same response before its first use;
+- the exact `kg:` declaration whenever a `kg:` name is used;
+- no adjacent objects without Turtle punctuation;
 - `rdfs:label` with a language tag for every resource;
 - no invented Wikidata QIDs.
 
@@ -78,7 +80,8 @@ The final response is parsed strictly with RDFLib. If parsing fails, the same LL
 - Put Wikidata-specific instructions only in the dedicated grounding blocks.
 - Keep `${USER_TEXT}` inside `<CURRENT_TEXT>` and exclude `<EXAMPLES>` from tool scope.
 - Keep every example self-contained and valid according to RDFLib.
-- Keep the distinction between `;`, `,`, and `.` explicit.
+- Keep the shared mandatory syntax block identical in all three pipelines.
+- Keep prefix binding and the distinction between `;`, `,`, and `.` explicit.
 - Do not instruct the model to use tools absent from `WIKIDATA_MCP_TOOLS`.
 - Keep Wikidata grounding separate from relationships stated by the source text.
 - Update `tests/unit/test_prompts.py` whenever the shared contract or grounding rules change.

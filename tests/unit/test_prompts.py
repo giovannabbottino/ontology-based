@@ -3,6 +3,10 @@ from pathlib import Path
 from rdflib import Graph
 
 
+def _mandatory_turtle_rules(prompt: str) -> str:
+    return prompt.split("Mandatory Turtle syntax rules:\n", 1)[1].split("\n\n", 1)[0]
+
+
 def _example_rdf_documents(prompt: str) -> list[str]:
     examples = prompt.split("<EXAMPLES>", 1)[1].split("</EXAMPLES>", 1)[0]
     documents = []
@@ -16,8 +20,8 @@ def test_user_prompt_is_generic_with_wikidata_grounding():
 
     assert "Convert the text below into a knowledge graph" in prompt
     assert "Follow RDF 1.1 Turtle syntax strictly" in prompt
-    assert "different predicates for the same subject with `;`" in prompt
-    assert "multiple objects of the same predicate with `,`" in prompt
+    assert "Use `;` to continue the same subject with a different predicate" in prompt
+    assert "Use `,` only to separate multiple objects of the same predicate" in prompt
     assert 'rdflib.Graph.parse(format="turtle")' in prompt
     assert "available Wikidata tools" in prompt
     assert "instance/subclass information" in prompt
@@ -43,8 +47,21 @@ def test_system_prompt_assigns_role_and_requires_wikidata_and_strict_turtle():
 
     assert prompt.startswith("Role: You are an RDF knowledge graph engineer.")
     assert "Follow RDF 1.1 Turtle syntax strictly" in prompt
-    assert "Use `;` between different predicates" in prompt
-    assert "Use `,` only between multiple objects" in prompt
+    assert "Use `;` to continue the same subject with a different predicate" in prompt
+    assert "Use `,` only to separate multiple objects of the same predicate" in prompt
     assert "available Wikidata tools before answering" in prompt
     assert "Use a `wd:Q...` resource only when Wikidata returned" in prompt
     assert "Valid Turtle syntax takes precedence" in prompt
+
+
+def test_user_and_system_prompts_share_mandatory_turtle_rules():
+    user_prompt = Path("prompt/prompts/ontology-few-shot.txt").read_text(encoding="utf-8")
+    system_prompt = Path("prompt/system/knowledge_graph.txt").read_text(encoding="utf-8")
+    rules = _mandatory_turtle_rules(user_prompt)
+
+    assert rules == _mandatory_turtle_rules(system_prompt)
+    assert "Every prefix used in a triple MUST be declared" in rules
+    assert "include exactly `@prefix kg:" in rules
+    assert "Never write two objects next to each other" in rules
+    assert "Use `,` only to separate multiple objects of the same predicate" in rules
+    assert "Use `;` to continue the same subject with a different predicate" in rules

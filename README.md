@@ -19,6 +19,8 @@ it does not reproduce the hybrid pipeline's statement and direct-relationship re
 The system and few-shot prompts use the same generic core and the same two
 RDFLib-validated examples as `prompt-based`. Ontology-specific behavior is isolated in
 dedicated Wikidata-grounding blocks that restrict tools and QIDs to the current input.
+The mandatory prefix-binding and Turtle-punctuation block is identical in all three
+pipelines.
 
 ## Quick start
 
