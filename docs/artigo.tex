@@ -127,22 +127,22 @@ estrutura do experimento \textit{prompt-based}, permitindo que o efeito da
 ancoragem ontológica seja analisado sem introduzir um \textit{prompt} separado
 para extração de menções.
 
-O \textit{prompt} de sistema define o modelo como um assistente de dados
-estruturados fundamentado em ontologias. Ele determina que entidades do mundo
-real sejam pesquisadas com \texttt{search\_items} e que identificadores
-selecionados tenham sua hierarquia inspecionada quando necessário. Os
-identificadores retornados pelo MCP durante a requisição corrente constituem a
-única fonte autorizada de \textit{Q-IDs}; identificadores recordados pelo modelo
-ou apenas exibidos nos exemplos não devem ser reutilizados sem confirmação.
+O \textit{prompt} de sistema atribui ao modelo o papel de engenheiro de grafos
+de conhecimento RDF. Seu núcleo é idêntico ao do experimento
+\textit{prompt-based} e exige estritamente a sintaxe RDF 1.1 Turtle: ponto e
+vírgula separa predicados distintos do mesmo sujeito, vírgula separa apenas
+objetos do mesmo predicado e ponto encerra cada declaração. Um bloco adicional
+determina o uso das ferramentas da Wikidata antes da resposta final e restringe
+os \textit{Q-IDs} aos identificadores retornados durante a requisição corrente.
 
-O \textit{prompt few-shot} mantém as instruções de serialização, os prefixos e
-os três exemplos de transformação utilizados no experimento baseado em
-\textit{prompting}. Entretanto, explicita que os \textit{Q-IDs} presentes nos
-exemplos demonstram somente o formato esperado. Também separa dois tipos de
-evidência: a hierarquia obtida na Wikidata pode fundamentar relações de
-classificação, enquanto as demais relações representadas no grafo devem ser
-apoiadas pelo texto de entrada. Assim, uma declaração disponível na Wikidata,
-mas ausente do texto, não deve ser adicionada como fato narrado pelo documento.
+O \textit{prompt few-shot} mantém as mesmas instruções genéricas, os prefixos e
+os dois exemplos de transformação utilizados no experimento baseado em
+\textit{prompting}: uma pessoa que administra um laboratório de pesquisa em
+Lisboa e a classificação de uma manga como fruta. Os exemplos usam recursos
+locais \texttt{kg:}, são validados com RDFLib e não devem provocar consultas à
+Wikidata. Somente o bloco adicional de fundamentação diferencia esta variante:
+a hierarquia obtida na Wikidata pode apoiar classificações, enquanto as demais
+relações devem permanecer apoiadas pelo texto de entrada.
 
 Os \textit{prompts} exigem que a resposta final contenha exclusivamente
 RDF/Turtle. Os recursos utilizados como sujeito ou objeto devem possuir

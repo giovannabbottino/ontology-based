@@ -6,7 +6,7 @@ Tests are split into:
   workflow, strict RDF validation, and same-conversation retries;
 - `tests/unit/test_wikidata_mcp_client.py`: MCP initialization, allowlist filtering,
   default language injection, tool execution, and UTF-8 handling;
-- `tests/unit/test_prompts.py`: critical grounding and placeholder constraints;
+- `tests/unit/test_prompts.py`: shared prompt rules, ontology-only grounding constraints, placeholders, and RDFLib validation of both few-shot examples;
 - `tests/integration/test_app_requests.py`: Flask `/analyze` and `/health` contracts with
   stubbed external dependencies.
 

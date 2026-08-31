@@ -59,6 +59,11 @@ tool calls, returns their results to the model, and validates the final Turtle.
 
 Prompt paths cannot escape the local `prompt/` directory.
 
+The default system and few-shot prompts share the same generic core and the same two
+RDFLib-validated examples as `prompt-based`. Only the ontology prompts add a dedicated
+Wikidata-grounding block, and entities shown solely in `<EXAMPLES>` are excluded from tool
+scope.
+
 ### Processing behavior
 
 1. Load the selected system and few-shot prompts.

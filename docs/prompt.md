@@ -1,90 +1,84 @@
 # Prompt documentation
 
-The ontology-based service uses the prompt pair inherited conceptually from the
-prompt-based baseline:
+The ontology-based service uses this pair:
 
 - `prompt/system/knowledge_graph.txt`
 - `prompt/prompts/ontology-few-shot.txt`
 
-Unlike the prompt-only baseline, these prompts instruct the model to obtain entity IDs
-and classification evidence through the Wikidata MCP tools before producing Turtle.
+Its core instructions, prefixes, input markers, and two few-shot examples are identical to `prompt-based`. The only intentional difference is a dedicated Wikidata-grounding block in the ontology user and system prompts.
 
-## System prompt
+## Shared system prompt
 
-The system prompt defines the model as an ontology-grounded structured-data assistant.
-Its central rules are:
+The shared system prompt assigns the role `RDF knowledge graph engineer` and requires:
 
-- call `search_items` for recognizable real-world entities;
-- inspect selected QIDs with `get_instance_and_subclass_hierarchy` when classification
-  matters;
-- treat MCP results from the current request as the only authority for QIDs and ontology
-  classes;
-- never copy a QID from model memory or merely from a few-shot example;
-- use hierarchy evidence for classifications without adding unrelated Wikidata facts;
-- use `kg:` resources when MCP does not resolve a concept;
-- return only valid Turtle with the declared prefixes;
-- label every subject/object resource and prefer traversable entity-to-entity triples.
+- RDF/Turtle-only output;
+- strict RDF 1.1 Turtle syntax;
+- `;` between different predicates for the same subject;
+- `,` only between multiple objects of the same predicate;
+- `.` at the end of every statement;
+- an object for every predicate;
+- only declared prefixes;
+- `rdfs:label` with a language tag for every resource;
+- no invented Wikidata QIDs.
 
-Tool calls are structured Ollama messages and therefore do not appear in the final Turtle.
+The complete result must parse with `rdflib.Graph.parse(format="turtle")`, and valid Turtle syntax takes precedence over every other instruction or example.
 
-## Ontology few-shot prompt
+## Shared few-shot prompt
 
-The few-shot prompt retains the task structure, prefix vocabulary, RDF constraints, and
-three transformation examples from `prompt-based`. It adds the following grounding rules:
+The generic user prompt represents the entities, concepts, and relationships stated in the input without imposing a domain-specific ontology or a long fixed predicate vocabulary. It declares `rdfs:`, `wd:`, `kg:`, and `xsd:`.
 
-- use Wikidata MCP before generating RDF;
-- resolve entities with `search_items`;
-- inspect the instance/subclass hierarchy of selected items;
-- authorize only QIDs actually returned by MCP during the current request;
-- interpret QIDs in examples as formatting demonstrations, not reusable evidence;
-- avoid arbitrary Wikidata statements because this variant is ontology-focused.
+Both projects use the same two examples:
 
-The runtime marker remains:
+1. a person managing a research laboratory located in Lisbon;
+2. a mango classified as a fruit.
+
+The examples use local `kg:` resources and demonstrate labeled, connected graphs, Turtle predicate separators, statement termination, and `kg:is` classification. Unit tests extract and parse both example documents with RDFLib.
+
+## Ontology-only Wikidata grounding
+
+The ontology prompt adds these requirements without changing the shared examples:
+
+- use the available Wikidata tools before producing the final RDF;
+- resolve recognizable entities from `<CURRENT_TEXT>`;
+- inspect relevant instance/subclass information;
+- use only QIDs returned by Wikidata during the current request;
+- never call Wikidata tools for entities shown only in `<EXAMPLES>`;
+- use Wikidata for entity and classification grounding while keeping other relationships limited to what the source text states.
+
+The service exposes only the tools configured by `WIKIDATA_MCP_TOOLS`. With `REQUIRE_WIKIDATA_MCP=true`, at least one allowlisted tool call is required, but the service does not force a fixed tool sequence.
+
+Tool calls are structured Ollama messages and do not appear in the final Turtle response.
+
+## Current input marker
+
+The examples and request are separated explicitly:
 
 ```text
-Text: ${USER_TEXT}
-RDF:
+<EXAMPLES>
+...
+</EXAMPLES>
+
+<CURRENT_TEXT>
+Text:
+${USER_TEXT}
+</CURRENT_TEXT>
+
+RDF/Turtle:
 ```
 
-The service also supports the legacy `${Text_TEXT}` marker. If a custom prompt contains
-neither marker, the input is appended as a chat-style user turn.
+The legacy `${Text_TEXT}` marker remains supported for custom prompts. If neither marker exists, the service appends the input as a user turn.
 
-## Prefixes and graph shape
+## Runtime validation and retry
 
-The prompts authorize:
-
-```turtle
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix wd: <http://www.wikidata.org/entity/> .
-@prefix kg: <https://example.org/wikidata-description/> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-```
-
-Important graph rules include:
-
-- exact input surface labels with language tags;
-- no invented or malformed QIDs;
-- `wd:` only for MCP-grounded entities/classes;
-- `kg:` snake_case resources for unresolved concepts;
-- `kg:is` as the preferred type/classification relation;
-- direct, labeled entity-to-entity paths for evaluation-oriented answers;
-- a complete period-terminated Turtle subject block.
-
-## Prompt enforcement versus service enforcement
-
-The prompts ask for both entity search and hierarchy inspection. The service enforces that
-at least one allowlisted MCP tool is called when `REQUIRE_WIKIDATA_MCP=true`; it does not
-force a specific tool sequence. Consequently, whether hierarchy lookup is appropriate for
-each mention remains a model decision. The service does enforce the allowlist, so the model
-cannot invoke tools such as `get_statements` or `execute_sparql` under the default profile.
+The final response is parsed strictly with RDFLib. If parsing fails, the same LLM conversation receives the parser error and is asked to regenerate the complete Turtle document. Successful Wikidata calls are retained and are not repeated solely because RDF syntax was invalid. No local syntax repair or substitute graph is used.
 
 ## Editing guidelines
 
-- Keep `${USER_TEXT}` unless chat-style appending is intentional.
-- Keep examples syntactically valid and all used prefixes declared.
-- Keep the statement that example QIDs are not evidence for a new request.
+- Keep the prompt core and examples identical to `prompt-based`.
+- Put Wikidata-specific instructions only in the dedicated grounding blocks.
+- Keep `${USER_TEXT}` inside `<CURRENT_TEXT>` and exclude `<EXAMPLES>` from tool scope.
+- Keep every example self-contained and valid according to RDFLib.
+- Keep the distinction between `;`, `,`, and `.` explicit.
 - Do not instruct the model to use tools absent from `WIKIDATA_MCP_TOOLS`.
-- Keep ontology evidence separate from relations stated by the source text.
-- Keep labels mandatory because downstream questions compare answer surfaces.
-- Preserve Turtle-only final output; tool calls already use a separate structured channel.
-- Update `tests/unit/test_prompts.py` when changing critical grounding constraints.
+- Keep Wikidata grounding separate from relationships stated by the source text.
+- Update `tests/unit/test_prompts.py` whenever the shared contract or grounding rules change.

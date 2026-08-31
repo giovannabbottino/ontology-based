@@ -16,6 +16,10 @@ The default MCP allowlist contains only `search_items` and
 `get_instance_and_subclass_hierarchy`. This keeps the experiment ontology-focused:
 it does not reproduce the hybrid pipeline's statement and direct-relationship retrieval.
 
+The system and few-shot prompts use the same generic core and the same two
+RDFLib-validated examples as `prompt-based`. Ontology-specific behavior is isolated in
+dedicated Wikidata-grounding blocks that restrict tools and QIDs to the current input.
+
 ## Quick start
 
 Requirements: Python 3.12, Ollama with `llama3.1:8b`, and outbound
@@ -109,7 +113,7 @@ The configured model must return structured tool calls for the ontology flow to 
 The default is `llama3.1:8b`, matching the other experimental pipelines and providing
 native Ollama tool-call support.
 
-The tool-call and result-size limits keep few-shot examples or large hierarchy responses
+The tool-call and result-size limits keep tool conversations and large hierarchy responses
 from consuming the model context and causing long-running requests.
 `OLLAMA_TOOL_NUM_PREDICT` applies only while tools are available; final Turtle generation
 continues to use `OLLAMA_NUM_PREDICT`.
