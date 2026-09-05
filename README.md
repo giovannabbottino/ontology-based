@@ -1,8 +1,8 @@
 # Ontology-based Knowledge Graph Construction API
 
 Flask API for the ontology-based ablation between `prompt-based` and
-`hybrid-pipelines`. It keeps the prompt-driven RDF generation flow, but lets the
-LLM consult a restricted Wikidata MCP tool set before producing Turtle.
+`hybrid-pipelines`. It lets the LLM consult a restricted Wikidata MCP tool set before producing
+structured RDF triples; the application builds and serializes the final Turtle with RDFLib.
 
 ## Ablation boundary
 
@@ -16,11 +16,9 @@ The default MCP allowlist contains only `search_items` and
 `get_instance_and_subclass_hierarchy`. This keeps the experiment ontology-focused:
 it does not reproduce the hybrid pipeline's statement and direct-relationship retrieval.
 
-The system and few-shot prompts use the same generic core and the same two
-RDFLib-validated examples as `prompt-based`. Ontology-specific behavior is isolated in
-dedicated Wikidata-grounding blocks that restrict tools and QIDs to the current input.
-The mandatory prefix-binding and Turtle-punctuation block is identical in all three
-pipelines.
+The prompts use the same structured-triple JSON contract as `prompt-based` and hybrid.
+Ontology-specific behavior is isolated in Wikidata-grounding instructions that restrict tools
+and QIDs to the current input.
 
 ## Quick start
 
@@ -50,7 +48,7 @@ allowlisted Wikidata tool call.
 2. Discover the allowed tools from the Wikidata streamable-HTTP MCP endpoint.
 3. Send the prompt and MCP tool schemas to Ollama `/api/chat`.
 4. Execute requested tool calls and return their results to the model.
-5. Validate the final Turtle with `rdflib`, retrying an invalid result up to three times.
+5. Validate the structured triples, build an RDFLib graph, and return its Turtle serialization.
 
 `REQUIRE_WIKIDATA_MCP=true` is the default. A request fails if the model returns an
 answer without consulting Wikidata, which prevents silently turning this ablation into
@@ -117,8 +115,8 @@ native Ollama tool-call support.
 
 The tool-call and result-size limits keep tool conversations and large hierarchy responses
 from consuming the model context and causing long-running requests.
-`OLLAMA_TOOL_NUM_PREDICT` applies only while tools are available; final Turtle generation
-continues to use `OLLAMA_NUM_PREDICT`.
+`OLLAMA_TOOL_NUM_PREDICT` applies only while tools are available. The service explicitly disables
+tools before the final structured response, which uses `OLLAMA_NUM_PREDICT` and the JSON schema.
 
 ## Run and test
 
@@ -141,3 +139,9 @@ The supported Python version and Docker image are both Python 3.12.
 - [Run guide](docs/how-to-run.md)
 - [Test guide](docs/how-to-test.md)
 - [Sequence diagram source](docs/seq/analyze.puml)
+
+## Pipeline documentation
+
+![Pipeline process](docs/figures/process.png)
+
+See [sequence diagram and regeneration instructions](docs/diagrams.md) and [structured RDF contract](docs/structured-rdf.md).

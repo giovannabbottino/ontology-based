@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -27,22 +28,51 @@ class FakeLLM:
             {
                 "message": {
                     "role": "assistant",
-                    "content": (
-                        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
-                        "@prefix wd: <http://www.wikidata.org/entity/> .\n"
-                        "@prefix kg: <https://example.org/wikidata-description/> .\n"
-                        'wd:Q90 rdfs:label "Paris"@en ; kg:is kg:city .\n'
-                        'kg:city rdfs:label "city"@en .'
-                    ),
+                    "content": _structured_paris(),
+                }
+            },
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": _structured_paris(),
                 }
             },
         ]
 
-    def chat(self, messages, tools=None, num_predict=None):
+    def chat(self, messages, tools=None, num_predict=None, response_format=None):
         return self.responses.pop(0)
 
     def health_check(self) -> dict[str, Any]:
         return {"status": "ok", "model": "test"}
+
+
+def _structured_paris() -> str:
+    return json.dumps(
+        {
+            "triples": [
+                {
+                    "subject": "wd:Q90",
+                    "predicate": "rdfs:label",
+                    "object": "Paris",
+                    "object_type": "literal",
+                    "language": "en",
+                },
+                {
+                    "subject": "kg:city",
+                    "predicate": "rdfs:label",
+                    "object": "city",
+                    "object_type": "literal",
+                    "language": "en",
+                },
+                {
+                    "subject": "wd:Q90",
+                    "predicate": "kg:is",
+                    "object": "kg:city",
+                    "object_type": "resource",
+                },
+            ]
+        }
+    )
 
 
 class FakeWikidata:

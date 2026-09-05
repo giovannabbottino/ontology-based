@@ -13,8 +13,8 @@ from ontology_based.infrastructure.request_logger import RequestLogger
 class StubPromptRepository:
     def load_prompt(self, prompt_name: str) -> str:
         if prompt_name.startswith("system/"):
-            return "Use Wikidata MCP, then return Turtle."
-        return "Build RDF for: ${USER_TEXT}"
+            return "Use Wikidata MCP, then return structured RDF JSON."
+        return "Build structured RDF JSON for: ${USER_TEXT}"
 
 
 class StubWikidata:
@@ -57,11 +57,13 @@ class StubLLM:
         self.requests: list[list[dict[str, Any]]] = []
         self.tool_requests: list[list[dict[str, Any]] | None] = []
         self.num_predict_requests: list[int | None] = []
+        self.response_formats: list[dict[str, Any] | str | None] = []
 
-    def chat(self, messages, tools=None, num_predict=None):
+    def chat(self, messages, tools=None, num_predict=None, response_format=None):
         self.requests.append(list(messages))
         self.tool_requests.append(tools)
         self.num_predict_requests.append(num_predict)
+        self.response_formats.append(response_format)
         return {"message": self.responses.pop(0)}
 
     def health_check(self) -> dict[str, Any]:
@@ -77,12 +79,31 @@ def tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def valid_rdf() -> str:
-    return (
-        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
-        "@prefix wd: <http://www.wikidata.org/entity/> .\n"
-        "@prefix kg: <https://example.org/wikidata-description/> .\n"
-        'wd:Q7251 rdfs:label "Alan Turing"@en ; kg:is wd:Q5 .\n'
-        'wd:Q5 rdfs:label "human"@en .'
+    return json.dumps(
+        {
+            "triples": [
+                {
+                    "subject": "wd:Q7251",
+                    "predicate": "rdfs:label",
+                    "object": "Alan Turing",
+                    "object_type": "literal",
+                    "language": "en",
+                },
+                {
+                    "subject": "wd:Q5",
+                    "predicate": "rdfs:label",
+                    "object": "human",
+                    "object_type": "literal",
+                    "language": "en",
+                },
+                {
+                    "subject": "wd:Q7251",
+                    "predicate": "kg:is",
+                    "object": "wd:Q5",
+                    "object_type": "resource",
+                },
+            ]
+        }
     )
 
 
@@ -92,6 +113,7 @@ def test_analyze_uses_search_and_hierarchy_before_returning_rdf():
         [
             tool_call("search_items", {"query": "Alan Turing"}),
             tool_call("get_instance_and_subclass_hierarchy", {"entity_id": "Q7251"}),
+            {"role": "assistant", "content": valid_rdf()},
             {"role": "assistant", "content": valid_rdf()},
         ]
     )
@@ -114,8 +136,10 @@ def test_analyze_uses_search_and_hierarchy_before_returning_rdf():
         "search_items",
         "get_instance_and_subclass_hierarchy",
     ]
-    assert llm.requests[0][1]["content"] == "Build RDF for: Alan Turing was a human."
+    assert llm.requests[0][1]["content"] == ("Build structured RDF JSON for: Alan Turing was a human.")
     assert llm.requests[1][-1]["role"] == "tool"
+    assert llm.tool_requests[-1] is None
+    assert llm.response_formats[-1] is not None
 
 
 def test_analyze_rejects_prompt_only_answer_when_mcp_is_required():
@@ -145,6 +169,7 @@ def test_invalid_rdf_is_retried_without_requiring_duplicate_mcp_calls():
         [
             tool_call("search_items", {"query": "Alan Turing"}),
             {"role": "assistant", "content": "not rdf"},
+            {"role": "assistant", "content": "not rdf"},
             {"role": "assistant", "content": valid_rdf()},
         ]
     )
@@ -161,10 +186,8 @@ def test_invalid_rdf_is_retried_without_requiring_duplicate_mcp_calls():
     assert "wd:Q7251" in response.rdf
     assert len(response.mcp_calls) == 1
     assert llm.tool_requests[-1] is None
-    assert "previous answer was not valid Turtle RDF" in llm.requests[-1][-1]["content"]
-    assert "Previous invalid RDF:\nnot rdf" in llm.requests[-1][-1]["content"]
-    assert "every statement conforms to the standard RDF/Turtle grammar" in llm.requests[-1][-1]["content"]
-    assert "correct the entire RDF document" in llm.requests[-1][-1]["content"]
+    assert "previous structured RDF JSON" in llm.requests[-1][-1]["content"]
+    assert "Previous invalid response:\nnot rdf" in llm.requests[-1][-1]["content"]
 
 
 def test_invalid_rdf_is_rejected_without_local_repair():
@@ -177,6 +200,7 @@ def test_invalid_rdf_is_rejected_without_local_repair():
         [
             tool_call("search_items", {"query": "Alan Turing"}),
             {"role": "assistant", "content": invalid_rdf},
+            {"role": "assistant", "content": invalid_rdf},
         ]
     )
     service = OntologyKnowledgeGraphService(
@@ -188,9 +212,7 @@ def test_invalid_rdf_is_rejected_without_local_repair():
     )
 
     with pytest.raises(RDFValidationError):
-        service.analyze(
-            AnalyzeRequest(text="Alan Turing was a human.", max_rdf_attempts=1)
-        )
+        service.analyze(AnalyzeRequest(text="Alan Turing was a human.", max_rdf_attempts=1))
 
 
 def test_limits_tool_calls_and_result_context():
@@ -227,6 +249,8 @@ def test_limits_tool_calls_and_result_context():
     assert llm.tool_requests[0]
     assert llm.tool_requests[1] is None
     assert llm.num_predict_requests == [256, None]
+    assert llm.response_formats[0] is None
+    assert llm.response_formats[1] is not None
     tool_messages = [message for message in llm.requests[1] if message["role"] == "tool"]
     assert all(len(message["content"]) <= 23 for message in tool_messages)
     assert "tool-call budget is exhausted" in llm.requests[1][-1]["content"]
@@ -244,9 +268,7 @@ def test_analyze_logs_request_lifecycle_with_idempotence_key(tmp_path):
         request_logger=RequestLogger(log_path),
     )
 
-    service.analyze(
-        AnalyzeRequest(text="Alan Turing was a human.", idempotence_key="request-123")
-    )
+    service.analyze(AnalyzeRequest(text="Alan Turing was a human.", idempotence_key="request-123"))
 
     entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
     assert {entry["idempotence_key"] for entry in entries} == {"request-123"}

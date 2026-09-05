@@ -8,6 +8,7 @@ from rdflib import Graph
 from rdflib.namespace import RDFS
 
 from ..domain.models import AnalyzeRequest, AnalyzeResponse
+from ..domain.structured_rdf import RDF_TRIPLES_SCHEMA, model_response_to_turtle
 from ..infrastructure.request_logger import RequestLogger
 
 
@@ -21,6 +22,7 @@ class ChatClient(Protocol):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         num_predict: int | None = None,
+        response_format: dict[str, Any] | str | None = None,
     ) -> dict[str, Any]: ...
 
     def health_check(self) -> dict[str, Any]: ...
@@ -128,18 +130,19 @@ class OntologyKnowledgeGraphService:
         mcp_calls: list[dict[str, Any]] = []
 
         for attempt in range(1, attempts + 1):
-            rdf_text, calls = self._chat_until_answer(
+            model_response, calls = self._chat_until_answer(
                 messages,
                 tools,
                 require_tool_call=self.require_mcp and not mcp_calls,
                 tool_call_budget=(
-                    max(0, self.max_tool_calls - len(mcp_calls)) if attempt == 1 else 0
+                    max(0, self.max_tool_calls - len(mcp_calls)) if attempt == 1 and self.require_mcp else 0
                 ),
                 key=key,
             )
             mcp_calls.extend(calls)
 
             try:
+                rdf_text = model_response_to_turtle(model_response)
                 self._parse_rdf(rdf_text)
                 self._log(
                     key,
@@ -161,8 +164,7 @@ class OntologyKnowledgeGraphService:
                 {
                     "role": "user",
                     "content": self._build_retry_prompt(
-                        rdf_text,
-                        last_error or "Invalid Turtle RDF."
+                        model_response, last_error or "Invalid structured RDF response."
                     ),
                 }
             )
@@ -184,8 +186,9 @@ class OntologyKnowledgeGraphService:
     ) -> tuple[str, list[dict[str, Any]]]:
         executed: list[dict[str, Any]] = []
         reminded = False
+        force_final_response = False
         for round_number in range(1, self.max_tool_rounds + 1):
-            available_tools = tools if len(executed) < tool_call_budget else None
+            available_tools = tools if not force_final_response and len(executed) < tool_call_budget else None
             self._log(
                 key,
                 "llm_chat_request",
@@ -199,6 +202,7 @@ class OntologyKnowledgeGraphService:
                 messages=messages,
                 tools=available_tools,
                 num_predict=self.tool_num_predict if available_tools else None,
+                response_format=RDF_TRIPLES_SCHEMA if available_tools is None else None,
             )
             self._log(
                 key,
@@ -254,7 +258,7 @@ class OntologyKnowledgeGraphService:
                             "role": "user",
                             "content": (
                                 "The tool-call budget is exhausted. Do not request more tools. "
-                                "Use the returned evidence and produce only the requested Turtle."
+                                "Use the evidence to produce only the requested structured RDF JSON."
                             ),
                         }
                     )
@@ -266,7 +270,7 @@ class OntologyKnowledgeGraphService:
                         "role": "user",
                         "content": (
                             "The tool-call budget is exhausted. Do not request more tools. "
-                            "Use the returned evidence and produce only the requested Turtle."
+                            "Use the evidence to produce only the requested structured RDF JSON."
                         ),
                     }
                 )
@@ -284,14 +288,27 @@ class OntologyKnowledgeGraphService:
                         "content": (
                             "Use the available Wikidata tools before answering. Search each "
                             "recognizable entity and inspect its instance/subclass hierarchy; "
-                            "then return only Turtle."
+                            "then return only the requested structured RDF JSON object."
                         ),
                     }
                 )
                 continue
 
             content = str(assistant.get("content") or "")
-            return self._extract_rdf_text(content), executed
+            if available_tools and executed:
+                force_final_response = True
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Tool gathering is complete. Using the evidence already returned, "
+                            "produce only the structured RDF JSON object requested by the prompt. "
+                            "Do not call more tools and do not return Turtle."
+                        ),
+                    }
+                )
+                continue
+            return content.strip(), executed
 
         raise RuntimeError("Ollama exceeded the configured MCP tool-call round limit.")
 
@@ -323,20 +340,16 @@ class OntologyKnowledgeGraphService:
         return text
 
     @staticmethod
-    def _build_retry_prompt(invalid_rdf: str, parser_error: str) -> str:
+    def _build_retry_prompt(invalid_response: str, parser_error: str) -> str:
         error = parser_error[:1200]
-        previous = invalid_rdf[:3000]
+        previous = invalid_response[:3000]
         return (
-            "The previous answer was not valid Turtle RDF when parsed with "
-            "rdflib Graph.parse.\n"
-            f"Parser error:\n{error}\n\n"
-            "Regenerate the complete document so every statement conforms to the standard "
-            "RDF/Turtle grammar and the full response parses without errors with "
-            "rdflib.Graph.parse(format=\"turtle\"). Treat the parser error only as a "
-            "diagnostic: review and correct the entire RDF document, not only the reported "
-            "line. Return only the corrected Turtle RDF without markdown, comments, or "
-            "explanations. Do not call more tools.\n"
-            f"Previous invalid RDF:\n{previous}"
+            "The previous structured RDF JSON could not be converted to RDF.\n"
+            f"Validation error:\n{error}\n\n"
+            "Return the complete corrected JSON object using the required triples schema. "
+            "Every triple needs subject, predicate, object, and object_type. Return JSON only, "
+            "without Turtle, markdown, comments, or explanations. Do not call more tools.\n"
+            f"Previous invalid response:\n{previous}"
         )
 
     def _log(self, key: str, event: str, payload: dict[str, Any]) -> None:

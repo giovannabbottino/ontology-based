@@ -205,9 +205,7 @@ def _tool_result_text(result: dict[str, Any]) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
-def _normalize_arguments(
-    arguments: dict[str, Any], schema: dict[str, Any]
-) -> dict[str, Any]:
+def _normalize_arguments(arguments: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     """Normalize model-generated arguments according to the MCP input schema."""
     properties = schema.get("properties") or {}
     normalized = dict(arguments)

@@ -61,3 +61,9 @@ docker compose build ontology-based
 ```
 
 The second command requires Docker Desktop or another Docker daemon to be running.
+
+## Structured RDF checks
+
+`tests/unit/test_structured_rdf.py` checks graph serialization and required fields.
+Client tests check schema forwarding; service tests cover validation retries.
+Prompt tests check the JSON contract. Run the full suite after changing these layers.

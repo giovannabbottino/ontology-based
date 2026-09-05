@@ -85,6 +85,7 @@ class OllamaChatClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         num_predict: int | None = None,
+        response_format: dict[str, Any] | str | None = None,
     ) -> dict[str, Any]:
         base_url = self.config.url.rstrip("/")
         target_url = base_url if base_url.endswith("/api/chat") else f"{base_url}/api/chat"
@@ -95,6 +96,8 @@ class OllamaChatClient:
         }
         if tools:
             payload["tools"] = tools
+        if response_format is not None:
+            payload["format"] = response_format
         options = dict(self.config.options.values)
         if num_predict is not None:
             options["num_predict"] = max(1, int(num_predict))

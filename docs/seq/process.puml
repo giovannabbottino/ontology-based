@@ -1,0 +1,32 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam ArrowColor #375A7F
+skinparam sequenceParticipantBackgroundColor #EAF1F8
+skinparam activityBackgroundColor #EAF1F8
+skinparam activityBorderColor #375A7F
+skinparam activityDiamondBackgroundColor #FFF3D6
+title Ontology-based: text to RDF
+start
+:POST /analyze\nValidate request and normalize text;
+:Load system and ontology prompts;
+:Discover allowlisted Wikidata MCP tools;
+:Ollama /api/chat requests search and hierarchy tools\nExecute bounded calls and retain evidence;
+:Require MCP use by default\nFail if the model skips required tools;
+:Disable tools for final structured generation;
+repeat
+  :Ollama returns triples JSON\nConstrain output with RDF_TRIPLES_SCHEMA;
+  :Validate fields, identifiers and literal metadata\nNormalize kg names\nBuild RDFLib graph and serialize Turtle;
+  :Parse Turtle and check graph postconditions;
+  if (Valid graph?) then (yes)
+    :Return HTTP 200 with Turtle string\nWrite configured request and generation logs;
+    stop
+  else (no)
+    :Record validation error;
+  endif
+repeat while (Attempts remain? max_rdf_attempts = 1 to 3) is (yes: feedback to same RDF stage) not (no)
+:Return HTTP 422 with validation details;
+stop
+@enduml

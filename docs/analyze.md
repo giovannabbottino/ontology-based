@@ -33,9 +33,9 @@ Tool discovery is cached in the MCP client after the first successful request.
 
 ## `POST /analyze`
 
-Builds an ontology-grounded RDF/Turtle graph. The service gives the configured Ollama
-model a prompt and the restricted Wikidata MCP tool schemas, executes the requested
-tool calls, returns their results to the model, and validates the final Turtle.
+Builds an ontology-grounded RDF/Turtle graph. The service gives Ollama the restricted Wikidata
+MCP tools, executes requested calls, then disables tools and requests structured RDF triples using
+a JSON schema. RDFLib constructs and serializes the final Turtle string.
 
 ### Request body
 
@@ -59,10 +59,8 @@ tool calls, returns their results to the model, and validates the final Turtle.
 
 Prompt paths cannot escape the local `prompt/` directory.
 
-The default system and few-shot prompts share the same generic core and the same two
-RDFLib-validated examples as `prompt-based`. Only the ontology prompts add a dedicated
-Wikidata-grounding block, and entities shown solely in `<EXAMPLES>` are excluded from tool
-scope.
+The default prompts share the structured-triple contract used by the other pipelines. The
+ontology prompts additionally require Wikidata tool grounding and prohibit invented QIDs.
 
 ### Processing behavior
 
@@ -76,12 +74,12 @@ scope.
    `tool` message.
 6. Execute at most `MAX_TOOL_CALLS` calls, truncating each result passed back to the
    model to `MAX_TOOL_RESULT_CHARS` characters.
-7. Repeat until Ollama returns a final textual answer or `MAX_TOOL_ROUNDS` is exhausted.
-7. When `REQUIRE_WIKIDATA_MCP=true`, remind a model that answers without a tool call once;
+7. Once tool gathering ends or the call budget is used, disable tools and request
+   the final triples using `RDF_TRIPLES_SCHEMA`. Exceeding `MAX_TOOL_ROUNDS` fails the request.
+8. When `REQUIRE_WIKIDATA_MCP=true`, remind a model that answers without a tool call once;
    reject the request if it again answers without using MCP.
-8. Extract Turtle from the final answer and validate it strictly with
-   `rdflib.Graph.parse(format="turtle")`.
-9. If the RDF remains invalid and attempts remain, append parser feedback to the same
+9. Validate the final structured JSON, build an RDFLib graph, and serialize it to Turtle.
+10. If the structured response is invalid and attempts remain, append validation feedback to the same
    conversation. A successful MCP call does not need to be repeated during RDF regeneration.
 
 The service exposes only the tools in `WIKIDATA_MCP_TOOLS`. The default allowlist contains
@@ -113,19 +111,20 @@ execution are therefore outside this ablation.
 ```
 
 `mcp_calls` is an audit trail in execution order. Each stored result is limited to 6,000
-characters; the complete result is still passed to the model during the request.
+characters; each result sent to the model is separately limited by `MAX_TOOL_RESULT_CHARS`
+(default: 1,500 characters, plus the truncation marker).
 
 ### RDF acceptance criteria
 
 The returned candidate must:
 
-- be non-empty, valid Turtle;
+- parse as valid Turtle after structured conversion (or legacy custom-client parsing);
 - contain at least one triple;
 - contain at least one predicate other than `rdfs:label`.
 
 No local syntax repair, statement salvage, alternative data source, or substitute graph is
 used. Invalid output is accepted only if a later attempt through the same LLM conversation
-returns valid Turtle.
+returns valid structured triples.
 
 ### Error responses
 
@@ -144,3 +143,7 @@ complete message history for that call, textual response, structured tool calls,
 creation timestamp. Request lifecycle, LLM/MCP activity, and RDF validation are also
 written as JSON Lines to `ANALYZE_LOG_PATH`, correlated by `idempotence_key`. Logging is
 best-effort and does not fail an analysis if the log file cannot be written.
+
+See the [structured RDF contract](structured-rdf.md) for identifier normalization,
+literal metadata, and legacy custom-client compatibility, and the
+[pipeline diagrams](diagrams.md) for generation and retry boundaries.

@@ -122,12 +122,8 @@ def test_normalizes_model_generated_tool_arguments(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(
-        "ontology_based.infrastructure.wikidata_mcp_client.requests.post", fake_post
-    )
-    client = WikidataMCPClient(
-        WikidataMCPConfig(allowed_tools=("get_instance_and_subclass_hierarchy",))
-    )
+    monkeypatch.setattr("ontology_based.infrastructure.wikidata_mcp_client.requests.post", fake_post)
+    client = WikidataMCPClient(WikidataMCPConfig(allowed_tools=("get_instance_and_subclass_hierarchy",)))
 
     result = client.call_tool(
         "get_instance_and_subclass_hierarchy",
