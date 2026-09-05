@@ -1,0 +1,38 @@
+Use the available Wikidata tools, then extract a knowledge graph from the text below as structured
+RDF triples.
+
+Return exactly this JSON shape:
+{
+  "triples": [
+    {
+      "subject": "wd:Q7251",
+      "predicate": "rdfs:label",
+      "object": "Alan Turing",
+      "object_type": "literal",
+      "language": "en"
+    },
+    {
+      "subject": "wd:Q7251",
+      "predicate": "kg:is",
+      "object": "wd:Q5",
+      "object_type": "resource"
+    }
+  ]
+}
+
+Rules:
+- Return JSON only. Do not return RDF/Turtle, Markdown, prefix declarations, or explanations.
+- Use the available Wikidata tools for entities in the current text before answering.
+- Use only QIDs returned by Wikidata during this request; never invent a QID.
+- Use a descriptive `kg:` resource when Wikidata did not resolve an entity.
+- Give every resource an `rdfs:label` using wording from the text and language `en`.
+- Use concise snake_case `kg:` predicates and resource names.
+- Use `rdf:type` for type relationships or `kg:is` for general “is” relationships.
+- Set `object_type` to `resource` for resources and `literal` for literal values.
+- A literal may have `language` or `datatype`, but not both.
+- Every triple must contain non-empty subject, predicate, object, and object_type strings.
+
+Text:
+${USER_TEXT}
+
+Response:
