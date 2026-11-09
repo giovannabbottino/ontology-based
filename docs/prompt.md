@@ -1,6 +1,6 @@
 # Prompts
 
-`prompt/system/knowledge_graph.txt` defines the rules; `prompt/prompts/ontology-few-shot.txt` contains an example and the `${USER_TEXT}` placeholder. Configure their paths in `.env`.
+`prompt/system/knowledge_graph.txt` defines the rules; `prompt/prompts/ontology-few-shot.txt` contains examples with Wikidata QIDs and the `${USER_TEXT}` placeholder. Configure their paths in `.env`.
 During the MCP phase, the model looks up entities and hierarchies from the input text. During final generation, tools are disabled and the schema requires a single `rdf` key of type string. QIDs must come from the current request's lookups; unresolved entities use `kg:snake_case` names.
 The Turtle string must begin with these declarations:
 

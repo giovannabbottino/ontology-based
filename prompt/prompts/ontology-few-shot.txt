@@ -1,5 +1,59 @@
 Extract the knowledge graph from the text using the available Wikidata tools during grounding. Return JSON with the rdf string as in this format example; use only entities and QIDs supported by the current request.
-{"rdf": "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix wd: <http://www.wikidata.org/entity/> .\n@prefix kg: <https://example.org/wikidata-description/> .\nwd:Q7251 rdfs:label \"Alan Turing\"@en ; kg:is wd:Q5 .\nwd:Q5 rdfs:label \"human\"@en ."}
+
+Rules:
+- Return JSON only, with exactly one key: "rdf". Its value must be the complete Turtle graph as a string.
+- Escape newlines, quotes, and backslashes correctly in the JSON string.
+- Do not return a triples array, Markdown fences, comments, or explanations.
+- The rdf string must start with these three prefix declarations, in this order, even if a namespace is unused:
+  @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+  @prefix wd: <http://www.wikidata.org/entity/> .
+  @prefix kg: <https://example.org/wikidata-description/> .
+- Declare any additional prefixes used by the graph after these three.
+- Represent the entities, concepts, and relationships stated in the text.
+- Give every subject and object resource an rdfs:label using wording from the text and language en.
+- Use wd:Q... only for QIDs returned by Wikidata MCP during the current request; otherwise use a descriptive kg: resource. Never copy QIDs from unrelated examples.
+- Use lowercase ASCII snake_case kg: resource names and predicates.
+- Use rdf:type for type relationships or kg:is for general "is" relationships.
+- Include at least one semantic relationship beyond labels.
+- Use language tags or datatypes for literals when appropriate, never both on the same literal.
+- Use valid Turtle punctuation and end each complete statement with a period.
+
+Examples below assume the listed QIDs were returned by MCP for that example only. These example results are not grounding evidence for the current input.
+
+Example text:
+Nelson Mandela's presidential inauguration took place in Pretoria in 1994.
+
+Example grounding results:
+Nelson Mandela = wd:Q8023; Pretoria = wd:Q3926. The inauguration event is unresolved and uses kg:presidential_inauguration.
+
+Example response:
+{
+  "rdf": "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix wd: <http://www.wikidata.org/entity/> .\n@prefix kg: <https://example.org/wikidata-description/> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\nwd:Q8023 rdfs:label \"Nelson Mandela\"@en ;\n    kg:participated_in kg:presidential_inauguration .\nkg:presidential_inauguration rdfs:label \"presidential inauguration\"@en ;\n    kg:took_place_in wd:Q3926 ;\n    kg:year \"1994\"^^xsd:gYear .\nwd:Q3926 rdfs:label \"Pretoria\"@en .\n"
+}
+
+Example text:
+OpenAI developed GPT-3, an artificial intelligence model for natural language processing.
+
+Example grounding results:
+OpenAI = wd:Q21708200; GPT-3 = wd:Q95726734; natural language processing = wd:Q30642. The model class is unresolved and uses kg:artificial_intelligence_model.
+
+Example response:
+{
+  "rdf": "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix wd: <http://www.wikidata.org/entity/> .\n@prefix kg: <https://example.org/wikidata-description/> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n\nwd:Q21708200 rdfs:label \"OpenAI\"@en ;\n    kg:developed wd:Q95726734 .\nwd:Q95726734 rdfs:label \"GPT-3\"@en ;\n    a kg:artificial_intelligence_model ;\n    kg:application_domain wd:Q30642 .\nkg:artificial_intelligence_model rdfs:label \"artificial intelligence model\"@en .\nwd:Q30642 rdfs:label \"natural language processing\"@en .\n"
+}
+
+Example text:
+Marie Curie and Pierre Curie discovered radium in Paris in 1898.
+
+Example grounding results:
+Marie Curie = wd:Q7186; Pierre Curie = wd:Q37463; radium = wd:Q1128; Paris = wd:Q90. The discovery event is unresolved and uses kg:radium_discovery.
+
+Example response:
+{
+  "rdf": "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix wd: <http://www.wikidata.org/entity/> .\n@prefix kg: <https://example.org/wikidata-description/> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\nkg:radium_discovery rdfs:label \"discovery of radium\"@en ;\n    kg:discovered_by wd:Q7186, wd:Q37463 ;\n    kg:substance wd:Q1128 ;\n    kg:took_place_in wd:Q90 ;\n    kg:year \"1898\"^^xsd:gYear .\nwd:Q7186 rdfs:label \"Marie Curie\"@en .\nwd:Q37463 rdfs:label \"Pierre Curie\"@en .\nwd:Q1128 rdfs:label \"radium\"@en .\nwd:Q90 rdfs:label \"Paris\"@en .\n"
+}
+
 Text:
 ${USER_TEXT}
+
 Response:
