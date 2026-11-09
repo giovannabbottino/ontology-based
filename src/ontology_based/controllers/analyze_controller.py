@@ -35,14 +35,14 @@ def create_analyze_blueprint(service: AnalyzeService) -> Blueprint:
 
         prompt_name = payload.get("prompt_name")
         system_prompt_name = payload.get("system_prompt_name")
-        idempotence_key = payload.get("idempotence_key")
+        request_id = payload.get("request_id")
         max_attempts = payload.get("max_rdf_attempts", 3)
         if prompt_name is not None and not isinstance(prompt_name, str):
             return jsonify({"error": "Field 'prompt_name' must be a string."}), 400
         if system_prompt_name is not None and not isinstance(system_prompt_name, str):
             return jsonify({"error": "Field 'system_prompt_name' must be a string."}), 400
-        if idempotence_key is not None and not isinstance(idempotence_key, str):
-            return jsonify({"error": "Field 'idempotence_key' must be a string."}), 400
+        if request_id is not None and not isinstance(request_id, str):
+            return jsonify({"error": "Field 'request_id' must be a string."}), 400
         if not isinstance(max_attempts, int) or isinstance(max_attempts, bool):
             return jsonify({"error": "Field 'max_rdf_attempts' must be an integer."}), 400
 
@@ -50,7 +50,7 @@ def create_analyze_blueprint(service: AnalyzeService) -> Blueprint:
             response = service.analyze(
                 AnalyzeRequest(
                     text=text.strip(),
-                    idempotence_key=idempotence_key,
+                    request_id=request_id,
                     prompt_name=prompt_name,
                     system_prompt_name=system_prompt_name,
                     max_rdf_attempts=max_attempts,

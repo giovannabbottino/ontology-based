@@ -1,27 +1,22 @@
+import json
 from pathlib import Path
 
+from ontology_based.domain.structured_rdf import REQUIRED_PREFIXES, model_response_to_turtle
 
-def test_user_prompt_requires_structured_rdf_json_and_wikidata_grounding():
+
+def test_user_prompt_contains_valid_json_rdf_example_and_input_placeholder():
     prompt = Path("prompt/prompts/ontology-few-shot.txt").read_text(encoding="utf-8")
-
-    assert "structured" in prompt
-    assert "RDF triples" in prompt
-    assert '"triples"' in prompt
-    assert '"subject"' in prompt
-    assert '"predicate"' in prompt
-    assert '"object_type"' in prompt
-    assert "Return JSON only" in prompt
-    assert "available Wikidata tools" in prompt
-    assert "Use only QIDs returned by Wikidata" in prompt
+    example = json.loads(prompt.splitlines()[1])
+    assert model_response_to_turtle(json.dumps(example)) == example["rdf"]
     assert "${USER_TEXT}" in prompt
+    assert "current request" in prompt
 
 
-def test_system_prompt_assigns_role_and_delegates_turtle_serialization():
+def test_system_prompt_requires_json_rdf_grounding_and_exact_prefixes():
     prompt = Path("prompt/system/knowledge_graph.txt").read_text(encoding="utf-8")
-
-    assert prompt.startswith("Role: You are a Wikidata-grounded knowledge graph extraction engineer.")
-    assert "Return exactly one JSON object" in prompt
-    assert "converts these" in prompt
-    assert "triples to RDF/Turtle with rdflib" in prompt
-    assert "Use the available Wikidata tools before answering" in prompt
-    assert "object_type" in prompt
+    assert "Return exactly one JSON object with a single key `rdf`" in prompt
+    assert "only when Wikidata returned that QID during the current request" in prompt
+    assert "Once tools are disabled" in prompt
+    assert "Return JSON only" in prompt
+    for prefix, iri in REQUIRED_PREFIXES.items():
+        assert f"@prefix {prefix}: <{iri}> ." in prompt

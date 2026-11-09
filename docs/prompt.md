@@ -1,56 +1,19 @@
-# Prompt behavior
+# Prompts
 
-The ontology pipeline uses the same structured RDF triple contract as the prompt-based and hybrid
-pipelines, with an additional Wikidata MCP tool phase.
+`prompt/system/knowledge_graph.txt` defines the rules; `prompt/prompts/ontology-few-shot.txt` contains an example and the `${USER_TEXT}` placeholder. Configure their paths in `.env`.
+During the MCP phase, the model looks up entities and hierarchies from the input text. During final generation, tools are disabled and the schema requires a single `rdf` key of type string. QIDs must come from the current request's lookups; unresolved entities use `kg:snake_case` names.
+The Turtle string must begin with these declarations:
 
-## Tool phase
-
-The model receives only the configured Wikidata tools. It resolves recognizable entities and
-inspects relevant instance/subclass information. QIDs may be used only when returned during the
-current request. Tool calls and results are retained in the audit response.
-
-When the model finishes gathering evidence, the service disables tools and starts a final response
-round. This prevents the 256-token tool-selection limit from truncating the graph response. The
-final round uses `OLLAMA_NUM_PREDICT` and Ollama's strict JSON Schema format.
-
-## Model response
-
-```json
-{
-  "triples": [
-    {
-      "subject": "wd:Q7251",
-      "predicate": "rdfs:label",
-      "object": "Alan Turing",
-      "object_type": "literal",
-      "language": "en"
-    },
-    {
-      "subject": "wd:Q7251",
-      "predicate": "kg:is",
-      "object": "wd:Q5",
-      "object_type": "resource"
-    }
-  ]
-}
+```turtle
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix wd: <http://www.wikidata.org/entity/> .
+@prefix kg: <https://example.org/wikidata-description/> .
 ```
 
-Every item requires `subject`, `predicate`, `object`, and `object_type`. Literal objects may have
-either `language` or `datatype`. Supported identifiers use `wd:`, `kg:`, `rdf:`, `rdfs:`, `xsd:`,
-or `owl:`.
+Example LLM output:
 
-## RDF construction
+```json
+{"rdf": "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix wd: <http://www.wikidata.org/entity/> .\n@prefix kg: <https://example.org/wikidata-description/> .\nwd:Q7251 rdfs:label \"Alan Turing\"@en ; kg:is wd:Q5 .\nwd:Q5 rdfs:label \"human\"@en ."}
+```
 
-The application validates the structured response, creates RDFLib terms, adds them to a graph, and
-returns `graph.serialize(format="turtle")` as the `rdf` string. The model never generates prefix
-declarations or Turtle punctuation.
-
-Invalid structured responses are retried without repeating successful Wikidata calls. The final
-Turtle must parse, contain triples, and include a semantic relationship in addition to labels.
-
-## Editing guidelines
-
-- Keep `${USER_TEXT}` in the user prompt.
-- Keep the structured fields identical across all three pipelines.
-- Keep current-request Wikidata grounding mandatory.
-- Keep final graph generation in a tool-disabled, schema-constrained round.
+Turtle newlines and quotes must be escaped inside the JSON string. Empty or invalid responses are sent back to the model with the validation error, up to three attempts in total. MCP lookups are not repeated during these attempts.

@@ -2,42 +2,12 @@ from __future__ import annotations
 
 import itertools
 import json
-import os
 from contextlib import suppress
-from dataclasses import dataclass
 from typing import Any
 
 import requests
 
-
-@dataclass(frozen=True)
-class WikidataMCPConfig:
-    url: str = "https://wd-mcp.wmcloud.org/mcp/"
-    language: str = "en"
-    timeout_seconds: float = 60.0
-    user_agent: str = "ontology-based-agent/1.0"
-    allowed_tools: tuple[str, ...] = (
-        "search_items",
-        "get_instance_and_subclass_hierarchy",
-    )
-
-    @classmethod
-    def from_env(cls) -> WikidataMCPConfig:
-        allowed = os.getenv(
-            "WIKIDATA_MCP_TOOLS",
-            "search_items,get_instance_and_subclass_hierarchy",
-        )
-        try:
-            timeout = float(os.getenv("WIKIDATA_TIMEOUT_SECONDS", "60"))
-        except ValueError:
-            timeout = 60.0
-        return cls(
-            url=os.getenv("WIKIDATA_MCP_URL", "https://wd-mcp.wmcloud.org/mcp/"),
-            language=os.getenv("WIKIDATA_LANGUAGE", "en"),
-            timeout_seconds=timeout,
-            user_agent=os.getenv("WIKIDATA_USER_AGENT", "ontology-based-agent/1.0"),
-            allowed_tools=tuple(name.strip() for name in allowed.split(",") if name.strip()),
-        )
+from ..config import WikidataMCPConfig
 
 
 class WikidataMCPClient:
