@@ -81,28 +81,13 @@ def tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
 def valid_rdf() -> str:
     return json.dumps(
         {
-            "triples": [
-                {
-                    "subject": "wd:Q7251",
-                    "predicate": "rdfs:label",
-                    "object": "Alan Turing",
-                    "object_type": "literal",
-                    "language": "en",
-                },
-                {
-                    "subject": "wd:Q5",
-                    "predicate": "rdfs:label",
-                    "object": "human",
-                    "object_type": "literal",
-                    "language": "en",
-                },
-                {
-                    "subject": "wd:Q7251",
-                    "predicate": "kg:is",
-                    "object": "wd:Q5",
-                    "object_type": "resource",
-                },
-            ]
+            "rdf": (
+                "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+                "@prefix wd: <http://www.wikidata.org/entity/> .\n"
+                "@prefix kg: <https://example.org/wikidata-description/> .\n"
+                'wd:Q7251 rdfs:label "Alan Turing"@en ; kg:is wd:Q5 .\n'
+                'wd:Q5 rdfs:label "human"@en .'
+            )
         }
     )
 
@@ -186,16 +171,13 @@ def test_invalid_rdf_is_retried_without_requiring_duplicate_mcp_calls():
     assert "wd:Q7251" in response.rdf
     assert len(response.mcp_calls) == 1
     assert llm.tool_requests[-1] is None
-    assert "previous structured RDF JSON" in llm.requests[-1][-1]["content"]
+    assert all(tools is None for tools in llm.tool_requests[2:])
+    assert "previous RDF response" in llm.requests[-1][-1]["content"]
     assert "Previous invalid response:\nnot rdf" in llm.requests[-1][-1]["content"]
 
 
 def test_invalid_rdf_is_rejected_without_local_repair():
-    invalid_rdf = (
-        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
-        "@prefix wd: <http://www.wikidata.org/entity/> .\n"
-        'wd:Q7251 rdfs:label ""Alan Turing"" .'
-    )
+    invalid_rdf = json.dumps({"rdf": "wd:Q7251 kg:is wd:Q5 ."})
     llm = StubLLM(
         [
             tool_call("search_items", {"query": "Alan Turing"}),
@@ -253,10 +235,10 @@ def test_limits_tool_calls_and_result_context():
     assert llm.response_formats[1] is not None
     tool_messages = [message for message in llm.requests[1] if message["role"] == "tool"]
     assert all(len(message["content"]) <= 23 for message in tool_messages)
-    assert "tool-call budget is exhausted" in llm.requests[1][-1]["content"]
+    assert "Tool gathering is complete" in llm.requests[1][-1]["content"]
 
 
-def test_analyze_logs_request_lifecycle_with_idempotence_key(tmp_path):
+def test_analyze_logs_request_lifecycle_with_request_id(tmp_path):
     log_path = tmp_path / "analyze.jsonl"
     service = OntologyKnowledgeGraphService(
         StubPromptRepository(),
@@ -268,10 +250,10 @@ def test_analyze_logs_request_lifecycle_with_idempotence_key(tmp_path):
         request_logger=RequestLogger(log_path),
     )
 
-    service.analyze(AnalyzeRequest(text="Alan Turing was a human.", idempotence_key="request-123"))
+    service.analyze(AnalyzeRequest(text="Alan Turing was a human.", request_id="request-123"))
 
     entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
-    assert {entry["idempotence_key"] for entry in entries} == {"request-123"}
+    assert {entry["request_id"] for entry in entries} == {"request-123"}
     assert [entry["event"] for entry in entries] == [
         "analyze_started",
         "llm_chat_request",
@@ -279,3 +261,100 @@ def test_analyze_logs_request_lifecycle_with_idempotence_key(tmp_path):
         "rdf_validated",
         "analyze_completed",
     ]
+
+
+@pytest.mark.parametrize("max_attempts", [0, -1, 1, 2, 3, 9])
+def test_generation_attempts_are_clamped_without_discovering_tools(max_attempts):
+    class UnavailableWikidata(StubWikidata):
+        def ollama_tools(self):
+            pytest.fail("Disabled grounding must not discover MCP tools.")
+
+    attempts = max(1, min(max_attempts, 3))
+    llm = StubLLM([{"content": "invalid JSON"}] * attempts)
+    service = OntologyKnowledgeGraphService(
+        StubPromptRepository(),
+        "prompt",
+        "system/prompt",
+        llm,
+        UnavailableWikidata(),
+        require_mcp=False,
+    )
+    with pytest.raises(RDFValidationError) as error:
+        service.analyze(AnalyzeRequest(text="Example", max_rdf_attempts=max_attempts))
+
+    assert error.value.attempts == attempts
+    assert len(llm.requests) == attempts
+    assert all(tools is None for tools in llm.tool_requests)
+    assert all(llm.response_formats)
+
+
+def test_final_generation_has_its_own_round_after_tool_budget_is_used():
+    llm = StubLLM(
+        [
+            tool_call("search_items", {"query": "Alan Turing"}),
+            {"content": valid_rdf()},
+        ]
+    )
+    service = OntologyKnowledgeGraphService(
+        StubPromptRepository(),
+        "prompt",
+        "system/prompt",
+        llm,
+        StubWikidata(),
+        max_tool_rounds=1,
+        max_tool_calls=1,
+    )
+    response = service.analyze(AnalyzeRequest(text="Alan Turing was a human."))
+
+    assert len(response.mcp_calls) == 1
+    assert len(llm.requests) == 2
+    assert llm.tool_requests[-1] is None
+
+
+def test_grounding_round_limit_does_not_silently_accept_unfinished_tool_gathering():
+    llm = StubLLM([tool_call("search_items", {"query": "Alan Turing"})])
+    service = OntologyKnowledgeGraphService(
+        StubPromptRepository(),
+        "prompt",
+        "system/prompt",
+        llm,
+        StubWikidata(),
+        max_tool_rounds=1,
+    )
+    with pytest.raises(RuntimeError, match="round limit"):
+        service.analyze(AnalyzeRequest(text="Alan Turing was a human."))
+
+
+def test_generation_rejects_tool_calls_when_tools_are_disabled():
+    llm = StubLLM([tool_call("search_items", {"query": "Alan Turing"})])
+    wikidata = StubWikidata()
+    service = OntologyKnowledgeGraphService(
+        StubPromptRepository(),
+        "prompt",
+        "system/prompt",
+        llm,
+        wikidata,
+        require_mcp=False,
+    )
+    with pytest.raises(RDFValidationError) as error:
+        service.analyze(AnalyzeRequest(text="Alan Turing was a human.", max_rdf_attempts=1))
+    assert "requested tools" in (error.value.last_error or "")
+    assert not wikidata.calls
+
+
+@pytest.mark.parametrize("invalid", ["", '{"rdf": ""}', '{"rdf": "invalid turtle"}', '{"triples": []}'])
+def test_empty_or_invalid_rdf_can_succeed_on_third_and_final_attempt(invalid):
+    llm = StubLLM([{"content": invalid}, {"content": invalid}, {"content": valid_rdf()}])
+    service = OntologyKnowledgeGraphService(
+        StubPromptRepository(),
+        "prompt",
+        "system/prompt",
+        llm,
+        StubWikidata(),
+        require_mcp=False,
+    )
+    response = service.analyze(AnalyzeRequest(text="Alan Turing was a human."))
+    assert response.rdf == json.loads(valid_rdf())["rdf"]
+    assert len(llm.requests) == 3
+    assert "Validation error" in llm.requests[1][-1]["content"]
+    assert all(tools is None for tools in llm.tool_requests)

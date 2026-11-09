@@ -11,18 +11,18 @@ logger = logging.getLogger(__name__)
 
 
 class RequestLogger:
-    """Write request events as JSON Lines grouped by idempotence key."""
+    """Write request events as JSON Lines grouped by request ID."""
 
     def __init__(self, log_path: str | PathLike[str] | None):
         self.log_path = Path(log_path) if log_path else None
         self._disabled = False
 
-    def log(self, idempotence_key: str, event: str, payload: dict[str, Any]) -> None:
+    def log(self, request_id: str, event: str, payload: dict[str, Any]) -> None:
         if not self.log_path or self._disabled:
             return
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
-            "idempotence_key": idempotence_key,
+            "request_id": request_id,
             "event": event,
             "payload": payload,
         }

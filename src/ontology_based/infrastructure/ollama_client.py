@@ -1,80 +1,18 @@
 from __future__ import annotations
 
-import csv
 import json
 import logging
-import os
-from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import requests
 
+from ..config import OllamaClientConfig
+
 logger = logging.getLogger(__name__)
 
 
-def _int_env(name: str) -> int | None:
-    value = os.getenv(name)
-    try:
-        return int(value) if value not in (None, "") else None
-    except ValueError:
-        return None
-
-
-def _float_env(name: str) -> float | None:
-    value = os.getenv(name)
-    try:
-        return float(value) if value not in (None, "") else None
-    except ValueError:
-        return None
-
-
-@dataclass(frozen=True)
-class OllamaOptions:
-    values: dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def from_env(cls) -> OllamaOptions:
-        values: dict[str, Any] = {}
-        for key, env_name, reader in (
-            ("seed", "OLLAMA_SEED", _int_env),
-            ("temperature", "OLLAMA_TEMPERATURE", _float_env),
-            ("top_k", "OLLAMA_TOP_K", _int_env),
-            ("top_p", "OLLAMA_TOP_P", _float_env),
-            ("min_p", "OLLAMA_MIN_P", _float_env),
-            ("num_ctx", "OLLAMA_NUM_CTX", _int_env),
-            ("num_predict", "OLLAMA_NUM_PREDICT", _int_env),
-        ):
-            value = reader(env_name)
-            if value is not None:
-                values[key] = value
-        stop = os.getenv("OLLAMA_STOP")
-        if stop:
-            values["stop"] = stop
-        return cls(values)
-
-
-@dataclass(frozen=True)
-class OllamaClientConfig:
-    url: str = "http://localhost:11434"
-    model: str = "llama3.1:8b"
-    csv_path: Path = Path("data/ollama_responses.csv")
-    timeout_seconds: float = 300.0
-    options: OllamaOptions = field(default_factory=OllamaOptions)
-
-    @classmethod
-    def from_env(cls) -> OllamaClientConfig:
-        return cls(
-            url=os.getenv("OLLAMA_API_URL", "http://localhost:11434"),
-            model=os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
-            csv_path=Path(os.getenv("OLLAMA_CSV_PATH", "data/ollama_responses.csv")),
-            timeout_seconds=_float_env("OLLAMA_TIMEOUT_SECONDS") or 300.0,
-            options=OllamaOptions.from_env(),
-        )
-
-
 class OllamaChatClient:
-    """Ollama `/api/chat` client with tool-call support and CSV audit logging."""
+    """Ollama `/api/chat` client with tool-call support and JSONL audit logging."""
 
     def __init__(self, config: OllamaClientConfig):
         self.config = config
@@ -98,7 +36,7 @@ class OllamaChatClient:
             payload["tools"] = tools
         if response_format is not None:
             payload["format"] = response_format
-        options = dict(self.config.options.values)
+        options = dict(self.config.options)
         if num_predict is not None:
             options["num_predict"] = max(1, int(num_predict))
         if options:
@@ -137,23 +75,18 @@ class OllamaChatClient:
         if self._logging_disabled:
             return
         try:
-            self.config.csv_path.parent.mkdir(parents=True, exist_ok=True)
-            write_header = not self.config.csv_path.exists()
-            with self.config.csv_path.open("a", encoding="utf-8", newline="") as stream:
-                fieldnames = ["model", "messages", "response", "tool_calls", "created_at"]
-                writer = csv.DictWriter(stream, fieldnames=fieldnames)
-                if write_header:
-                    writer.writeheader()
-                message = response.get("message") or {}
-                writer.writerow(
-                    {
-                        "model": response.get("model", self.config.model),
-                        "messages": json.dumps(messages, ensure_ascii=False),
-                        "response": message.get("content"),
-                        "tool_calls": json.dumps(message.get("tool_calls"), ensure_ascii=False),
-                        "created_at": response.get("created_at"),
-                    }
-                )
-        except OSError as exc:
+            self.config.jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+            message = response.get("message") or {}
+            entry = {
+                "model": response.get("model", self.config.model),
+                "messages": messages,
+                "response": message.get("content"),
+                "tool_calls": message.get("tool_calls"),
+                "created_at": response.get("created_at"),
+            }
+            line = json.dumps(entry, ensure_ascii=False) + "\n"
+            with self.config.jsonl_path.open("a", encoding="utf-8") as stream:
+                stream.write(line)
+        except (OSError, TypeError, ValueError) as exc:
             self._logging_disabled = True
-            logger.warning("Disabling Ollama CSV logging after write failure: %s", exc)
+            logger.warning("Disabling Ollama JSONL logging after write failure: %s", exc)

@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ontology_based.infrastructure.wikidata_mcp_client import (
-    WikidataMCPClient,
-    WikidataMCPConfig,
-)
+from ontology_based.config import WikidataMCPConfig
+from ontology_based.infrastructure.wikidata_mcp_client import WikidataMCPClient
 
 
 class FakeResponse:
