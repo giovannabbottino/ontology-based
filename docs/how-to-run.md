@@ -1,6 +1,69 @@
 # Run guide
 
-Use Python 3.12 and follow the [Run](../README.md#run) commands from the project root. Copy `.env.example` to `.env` before starting the API; adjust the model, endpoints, and limits in that file instead of exporting variables individually.
-Ollama must be running with the model specified in `.env`. The API uses port 5100; `GET /health` returns 200 when Ollama and Wikidata MCP are available, or 503 if either dependency fails.
-By default, analysis requires at least one MCP call and allows only entity search and hierarchy lookups. Disabling this requirement in `.env` also skips the lookup phase during analysis; the health check still checks both dependencies.
-Log directories are created automatically. See `logs/ollama_responses.jsonl` for conversations and `logs/analyze_log.jsonl` for events correlated by `request_id`. The 300-second timeout applies per Ollama call, not per complete analysis.
+[README](../README.md) · [API](analyze.md) · [Testing](how-to-test.md)
+
+## Requirements
+
+Use Python 3.12. A running Ollama instance with a model that supports native tool calling, plus access to Wikidata MCP. Run all commands from `ontology-based/` in the combined workspace, or the repository root if this project is checked out separately.
+
+## Install
+
+PowerShell:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+```
+
+Bash (Linux/macOS):
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+```
+
+## Configure and start
+
+Copy [.env.example](../.env.example) only if `.env` does not exist:
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+Bash equivalent: `test -f .env || cp .env.example .env`.
+
+Edit the model, endpoints, limits, and log paths in `.env`. The application loads this file automatically. Keep Ollama running (start `ollama serve` in a separate terminal if necessary), then run:
+
+```powershell
+ollama pull llama3.1:8b
+python -m ontology_based
+```
+
+If you change the model in `.env`, pull that model instead. The default address is `http://127.0.0.1:5100`.
+
+## Verify
+
+From another terminal:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5100/health
+```
+
+Bash equivalent: `curl http://127.0.0.1:5100/health`. Once healthy, send the [README request](../README.md#usage). See the [API](analyze.md) for error codes.
+
+## Pipeline settings
+
+By default, `REQUIRE_WIKIDATA_MCP=true` requires MCP consultations. Disabling it skips the lookup phase; `/health` still checks both dependencies. `MAX_TOOL_ROUNDS`, `MAX_TOOL_CALLS`, and `MAX_TOOL_RESULT_CHARS` bound evidence gathering. Tool calls use a separate `OLLAMA_TOOL_NUM_PREDICT` limit (256 by default).
+
+`OLLAMA_TIMEOUT_SECONDS` defaults to 300 seconds per call, not per complete analysis. `max_rdf_attempts` is clamped to 1–3.
+
+## Logs and troubleshooting
+
+Runtime log directories are created automatically. Inspect `logs/analyze_log.jsonl` for request events and `logs/ollama_responses.jsonl` for model responses.
+
+- For HTTP 503, inspect the health response and check the configured dependencies.
+- For timeouts, check the service endpoints and adjust the relevant timeout in `.env`.
+- For invalid or truncated RDF, inspect the validation error and generation token limit.
+- After changing dependencies, reinstall with `python -m pip install -e ".[dev]"`.
