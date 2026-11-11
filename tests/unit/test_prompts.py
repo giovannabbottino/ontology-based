@@ -27,9 +27,9 @@ def test_user_prompt_examples_use_grounded_wikidata_ids_and_valid_turtle():
 
 def test_system_prompt_requires_json_rdf_grounding_and_exact_prefixes():
     prompt = Path("prompt/system/knowledge_graph.txt").read_text(encoding="utf-8")
-    assert "Return exactly one JSON object with a single key `rdf`" in prompt
+    assert 'Return exactly one JSON object with only the "rdf" key' in prompt
     assert "only when Wikidata returned that QID during the current request" in prompt
-    assert "Once tools are disabled" in prompt
-    assert "Return JSON only" in prompt
+    assert "During the grounding phase" in prompt
+    assert "Do not return a triples array, Markdown fences, comments, or explanations" in prompt
     for prefix, iri in REQUIRED_PREFIXES.items():
         assert f"@prefix {prefix}: <{iri}> ." in prompt
